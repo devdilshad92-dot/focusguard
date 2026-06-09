@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] - 2026-06-09
+
+### Added
+- **Multi-Package Build Automation:** Configured `make pack-all` to package both modern ESM version (`focusguard-modern@dilshad.dev.shell-extension.zip` for GNOME 45+) and legacy imports version (`focusguard-legacy@dilshad.dev.shell-extension.zip` for GNOME 40–44) automatically from their respective Git branches.
+- **GNOME 40–48 version boundaries:** Structured `metadata.json` versions on both branches so they are isolated and do not crash on incompatible systems.
+
 ## [1.0.0] - 2026-06-09
 
 ### Added

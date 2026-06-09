@@ -65,6 +65,23 @@ pack: lint
 		.
 	@echo "✓ created $(ZIP)"
 
+.PHONY: pack-all
+pack-all: lint
+	@echo "Packaging both ESM and Legacy versions..."
+	@rm -rf build/pack
+	@mkdir -p build/pack/esm build/pack/legacy
+	@git archive --format=tar development | tar -x -C build/pack/esm
+	@git archive --format=tar main | tar -x -C build/pack/legacy
+	@echo "Building ESM (Modern) version..."
+	@cd build/pack/esm && gnome-extensions pack --force --extra-source=services --extra-source=ui --extra-source=utils --extra-source=stylesheet.css .
+	@mv build/pack/esm/$(ZIP) ./focusguard-modern@dilshad.dev.shell-extension.zip
+	@echo "Building Legacy version..."
+	@cd build/pack/legacy && gnome-extensions pack --force --extra-source=services --extra-source=ui --extra-source=utils --extra-source=stylesheet.css .
+	@mv build/pack/legacy/$(ZIP) ./focusguard-legacy@dilshad.dev.shell-extension.zip
+	@rm -rf build/pack
+	@echo "✓ created focusguard-modern@dilshad.dev.shell-extension.zip (GNOME 45+)"
+	@echo "✓ created focusguard-legacy@dilshad.dev.shell-extension.zip (GNOME 40-44)"
+
 # --- Install straight from the packed zip (mirrors what users do) -----------
 .PHONY: install-zip
 install-zip: pack
