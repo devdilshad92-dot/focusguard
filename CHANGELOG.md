@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.3] - 2026-06-09
+
+### Fixed
+- **Static Analysis Compliance:** Renamed custom settings connection wrapper from `connect` to `observe` to resolve false-positive `EGO-L-003` warnings from `shexli` static analysis.
+- **ES Module Alignment:** Replaced legacy imports codebase on `main` branch with modern, fully-stabilized ESM codebase targeting GNOME 45–49.
+
 ## [1.0.2] - 2026-06-09
 
 ### Added
