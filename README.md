@@ -13,47 +13,39 @@ and adapts to how you actually work.
 
 ## ✨ Features
 
-### Smart break reminders
-- Configurable focus intervals (15 / 20 / 30 / 45 / 60 / 90 min, or anything).
-- **Pomodoro mode** (25/5, 50/10 or custom) with long breaks.
-- **Idle detection** — never reminds you when you're already away.
-- **Auto-reset** after long idle periods (a real break already happened).
+### ⏱️ Centralized Drift-Free Timer Engine
+- **Absolute Time Sync:** Uses `Date.now()` delta calculation to ensure zero-drift accuracy across system suspends, lock screen events, or system clock updates.
+- **Leak-Free Heartbeat:** Actively cleans up timeout callbacks using strict `GLib.SOURCE_REMOVE` returns to prevent duplicate ticking or memory bloat in GNOME Shell.
 
-### Beautiful GNOME integration
-- Top-panel indicator with a live countdown and state icon.
-- Native popup menu, notifications and sounds.
-- Light/dark friendly styling, smooth fades and a calming break overlay.
+### 🧠 Centralized Deep Work Detection (Intense Work Mode)
+- **Intense Focus Heuristic:** Automatically monitors active windows (such as VS Code, JetBrains Suite, Cursor, terminal emulators) to identify active coding sessions.
+- **Smart Reminder Deferral:** Delays break, eye care, and hydration reminders when you are in flow. Reminders are held at 0 and postponed until a natural pause (idle time > 15s or switching focus away) occurs.
 
-### Intelligent reminder system
-- **Escalating** nudges if a break is repeatedly ignored.
-- **Smart postponing** during fullscreen apps, media playback, calls and
-  screen sharing (honours system idle-inhibitors).
-- Snooze 5 / 10 / 15 minutes, or skip once.
-- **Adaptive scheduling** — gently shortens focus blocks when you skip breaks,
-  lengthens them when your compliance is high.
+### 🖥️ Real-time Dropdown Dashboard
+- **Flicker-Free Live Metrics:** Dropdown menu items (timers, focus scores, active goals) update smoothly every second.
+- **Zero-CPU Idle Footprint:** The update loop is connected directly to the menu's open state, spinning up only when the menu is visible and shutting down immediately upon closing.
 
-### Break experience
-- Optional **fullscreen overlay** (Esc to skip).
-- Rotating wellness content: **stretches**, **20-20-20 eye-care**,
-  **hydration**, **posture** and **walking** prompts.
-- Guided **box-breathing** animation.
+### 👁️ 20-20-20 Eye Care System
+- **State Restoration:** Prevents countdown conflicts. The main focus session timer state and duration are backed up when entering an eye care break, and seamlessly restored upon completion, snooze, or skip.
+- **Compliance Tracking:** Tracks shown, completed, and skipped eye breaks.
 
-### Productivity analytics
-- Daily & weekly focus time with a bar chart.
-- Breaks taken, **break-compliance rate**, current and **longest focus streak**.
+### 💧 Hydration Tracking
+- **Water Consumption Log:** Quick top-panel water logging with a manual "Reset Water Counter" menu option and native confirmation dialogs.
+- **Smart Rollover:** Automatically archives logs at midnight, tracking consumption relative to local day keys.
 
-### Health features
-- Eye-strain prevention, hydration tracking, posture reminders.
-- Custom daily wellness goals.
+### 🎯 Goal-Based Focus Sessions
+- **Intentionality Dialog:** Prompting the user with a goal-setting dialog (*"What are you working on today?"*) before a focus session begins.
+- **Persistent Progress:** Keeps your active goal prominently displayed at the top of the dashboard.
 
-### Developer-focused
-- **Deep work mode** (suppress everything).
-- Auto-pause while **screen sharing**.
-- Optional **git commit-streak** tracking in the menu.
+### 📈 Metrics & Weekly reports
+- **Today's Focus Score:** Displays a 0-100 score on the dashboard combining focus time, break compliance, hydration, and eye care consistency.
+- **Burnout Risk Engine:** Analyzes continuous work blocks against recovery scores to alert the user of burnout hazards.
+- **Weekly Summary:** Modal summary aggregating total focus, compliance percentages, average scores, productive days, and longest sessions.
 
-### Full settings page
-- Every interval, duration, sound, style and goal is configurable.
-- **Import / export** your configuration as JSON; restore defaults.
+### 🔧 Full Settings Page
+- Native preferences window backed by Adw widgets.
+- Customizable **Idle Threshold** dropdown (5, 10, 15, 20, 30 minutes) replacing slider settings.
+- **Import / export** configuration as JSON.
 
 ---
 
