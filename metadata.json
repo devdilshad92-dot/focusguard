@@ -4,12 +4,12 @@
   "description": "Premium break reminders, Pomodoro focus sessions, eye-care, hydration and posture nudges, plus productivity analytics — built for developers, remote workers and office professionals. Smart, idle-aware and never annoying.",
   "version": 1,
   "version-name": "1.0.0",
-  "shell-version": ["45", "46", "47", "48", "49"],
+  "shell-version": ["45", "46", "47", "48"],
   "session-modes": ["user"],
-  "url": "https://github.com/dilshad/focusguard",
+  "url": "https://github.com/devdilshad92-dot/focusguard",
   "settings-schema": "org.gnome.shell.extensions.focusguard",
   "gettext-domain": "focusguard",
   "donations": {
-    "github": ["dilshad"]
+    "github": ["devdilshad92-dot"]
   }
 }
