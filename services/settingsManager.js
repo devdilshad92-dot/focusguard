@@ -55,6 +55,8 @@ export class SettingsManager {
     get postponeOnInhibit() { return this.getBool(Keys.POSTPONE_ON_INHIBIT); }
     get snoozeDurations() { return this.getIntArray(Keys.SNOOZE_DURATIONS); }
     get adaptiveScheduling() { return this.getBool(Keys.ADAPTIVE_SCHEDULING); }
+    get activeWorkOnly() { return this.getBool(Keys.ACTIVE_WORK_ONLY); }
+    get naturalPauseThreshold() { return this.getInt(Keys.NATURAL_PAUSE_THRESHOLD); }
 
     get overlayFadeMs() { return this.getInt(Keys.OVERLAY_FADE_MS); }
     get showStretchTips() { return this.getBool(Keys.SHOW_STRETCH_TIPS); }

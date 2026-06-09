@@ -39,8 +39,8 @@ export function buildRemindersPage(settings) {
     switchRow(postpone, settings, Keys.POSTPONE_ON_FULLSCREEN,
         'Postpone during fullscreen apps');
     switchRow(postpone, settings, Keys.POSTPONE_ON_INHIBIT,
-        'Postpone during media playback & calls',
-        'Honours system idle-inhibitors set by players and conferencing apps.');
+        'Postpone during video calls & presentations',
+        'Pauses when any app holds an idle inhibitor (video calls, media players). Disable if you play music while working.');
 
     const escalation = group(page, 'Escalation');
     switchRow(escalation, settings, Keys.ESCALATE_IGNORED,

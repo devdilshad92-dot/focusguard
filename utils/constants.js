@@ -49,6 +49,8 @@ export const Keys = Object.freeze({
     POSTPONE_ON_INHIBIT: 'postpone-on-inhibit',
     SNOOZE_DURATIONS: 'snooze-durations',
     ADAPTIVE_SCHEDULING: 'adaptive-scheduling',
+    ACTIVE_WORK_ONLY: 'active-work-only',
+    NATURAL_PAUSE_THRESHOLD: 'natural-pause-threshold',
 
     OVERLAY_FADE_MS: 'overlay-fade-ms',
     SHOW_STRETCH_TIPS: 'show-stretch-tips',

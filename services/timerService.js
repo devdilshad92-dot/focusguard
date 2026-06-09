@@ -59,6 +59,7 @@ export const TimerService = GObject.registerClass({
         this._lastTickMs = 0;
         this._accumulatedTimeMs = 0;
         this._idlePendingResume = false;
+        this._breakWaitSecs = 0;
     }
 
     setWorkOverride(seconds) {
@@ -239,6 +240,7 @@ export const TimerService = GObject.registerClass({
         this._phaseTotal = this._remaining;
         this._escalationAccum = 0;
         this._breakDueEmitted = false;
+        this._breakWaitSecs = 0;
         this._suspendReason = null;
         this._parked = false;
         this._eyeRemaining = 20 * 60;
@@ -400,10 +402,13 @@ export const TimerService = GObject.registerClass({
 
         // --- State Countdown ---
         if (this._state === TimerState.WORK) {
-            if (this._remaining > 0) {
+            // Idea 1: only advance countdown during active input (10-second micro-idle threshold).
+            const activeNow = !this._settings.activeWorkOnly ||
+                              this._ctx.idleTimeMs() < 10000;
+            if (activeNow && this._remaining > 0)
                 this._remaining -= 1;
-            }
-            this._sessionElapsed += 1;
+            if (activeNow)
+                this._sessionElapsed += 1;
 
             if (this._settings.showEyeCare) {
                 if (this._eyeRemaining > 0) {
@@ -427,15 +432,24 @@ export const TimerService = GObject.registerClass({
             if (this._remaining <= 0) {
                 if (this._settings.deepWorkMode && this._detectIntenseWork()) {
                     // Deep work mode: do not interrupt work. Keep remaining at 0.
-                } else if (this._settings.autoStartBreaks) {
-                    this._beginBreak();
-                    return;
-                } else {
-                    this._remaining = 0;
-                    if (!this._breakDueEmitted) {
+                } else if (!this._breakDueEmitted) {
+                    // Idea 2: delay the FIRST notification until a natural typing pause.
+                    // After 60 s of waiting, interrupt regardless.
+                    this._breakWaitSecs += 1;
+                    const pauseMs = this._settings.naturalPauseThreshold * 1000;
+                    const shouldFire = this._ctx.idleTimeMs() >= pauseMs ||
+                                      this._breakWaitSecs >= 60;
+                    if (shouldFire) {
+                        this._breakWaitSecs = 0;
+                        if (this._settings.autoStartBreaks) {
+                            this._beginBreak();
+                            return;
+                        }
                         this._breakDueEmitted = true;
                         this.emit('break-due', this._wouldBeLong());
                     }
+                } else {
+                    // Already notified — escalate every tick as before.
                     this._maybeEscalate();
                 }
             }

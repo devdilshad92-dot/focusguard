@@ -14,6 +14,16 @@
     color: #4a90d9;
 }
 
+/* Idea 3: progressive warning — 75% of focus block elapsed */
+.focusguard-panel-icon-warning {
+    color: #f4a72a;
+}
+
+/* Idea 3: break overdue — countdown hit 0, waiting for natural pause */
+.focusguard-panel-icon-overdue {
+    color: #e05a3a;
+}
+
 /* ------------------------------- Popup menu ------------------------------- */
 
 /* State heading: "Focusing", "On Break", etc. */
@@ -21,6 +31,13 @@
     font-weight: 700;
     font-size: 1.05em;
     padding: 2px 0 4px 0;
+}
+
+/* Cycle info line below the state heading: "1h focus → 10m break · auto-repeating" */
+.focusguard-cycle-info {
+    font-size: 0.80em;
+    color: rgba(255, 255, 255, 0.45);
+    padding-bottom: 4px;
 }
 
 /* Left-side label of a timer row ("Focus Session", "Eye Reminder", …) */

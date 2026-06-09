@@ -36,21 +36,21 @@
     </key>
 
     <key name="work-duration" type="i">
-      <default>1200</default>
+      <default>5400</default>
       <range min="60" max="14400"/>
       <summary>Work duration (seconds)</summary>
-      <description>Length of a focus block before a break is suggested.</description>
+      <description>Length of a focus block before a break is suggested. Default is 90 minutes (one ultradian rhythm cycle).</description>
     </key>
 
     <key name="break-duration" type="i">
-      <default>300</default>
+      <default>900</default>
       <range min="30" max="3600"/>
       <summary>Break duration (seconds)</summary>
-      <description>Length of a short/micro break.</description>
+      <description>Length of a short break. Default is 15 minutes to match the ultradian rhythm rest period.</description>
     </key>
 
     <key name="long-break-duration" type="i">
-      <default>900</default>
+      <default>1800</default>
       <range min="60" max="7200"/>
       <summary>Long break duration (seconds)</summary>
       <description>Length of the long break in Pomodoro mode.</description>
@@ -125,9 +125,9 @@
     </key>
 
     <key name="postpone-on-inhibit" type="b">
-      <default>true</default>
+      <default>false</default>
       <summary>Postpone breaks during presentations / video / screen sharing</summary>
-      <description>Honours desktop idle inhibitors set by media players and conferencing apps.</description>
+      <description>Honours desktop idle inhibitors set by media players and conferencing apps. Disable if you play music while working.</description>
     </key>
 
     <key name="snooze-durations" type="ai">
@@ -139,6 +139,19 @@
       <default>true</default>
       <summary>Adapt interval length to recent behaviour</summary>
       <description>Gently lengthens or shortens focus blocks based on how often breaks are skipped.</description>
+    </key>
+
+    <key name="active-work-only" type="b">
+      <default>true</default>
+      <summary>Count only active work seconds</summary>
+      <description>Freeze the focus countdown when keyboard/mouse has been idle for 10 seconds. Only active work time counts.</description>
+    </key>
+
+    <key name="natural-pause-threshold" type="i">
+      <default>3</default>
+      <range min="1" max="30"/>
+      <summary>Seconds of idle before break notification fires</summary>
+      <description>When a break is due, wait until you pause typing for this many seconds before showing the reminder. Avoids interrupting mid-sentence.</description>
     </key>
 
     <!-- ========================= Break experience ========================= -->

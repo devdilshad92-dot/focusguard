@@ -59,6 +59,7 @@ export const PanelIndicator = GObject.registerClass({
     _buildMenu() {
         // ── Live timer section ───────────────────────────────────────────
         this._stateHeading = this._addHeading();
+        this._cycleInfo = this._addCycleInfo();
         this._focusSessionValue    = this._addTimerRow('Focus Session');
         this._nextBreakValue       = this._addTimerRow('Next Break');
         this._eyeReminderValue     = this._addTimerRow('Eye Reminder');
@@ -131,6 +132,18 @@ export const PanelIndicator = GObject.registerClass({
         const prefsItem = new PopupMenu.PopupMenuItem('⚙  Settings');
         prefsItem.connect('activate', () => this._onOpenPrefs?.());
         this.menu.addMenuItem(prefsItem);
+    }
+
+    _addCycleInfo() {
+        const item  = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+        const label = new St.Label({
+            text: '',
+            style_class: 'focusguard-cycle-info',
+            x_expand: true,
+        });
+        item.add_child(label);
+        this.menu.addMenuItem(item);
+        return label;
     }
 
     _addHeading() {
@@ -218,6 +231,21 @@ export const PanelIndicator = GObject.registerClass({
         // ── State heading ─────────────────────────────────────────────────
         this._stateHeading.text = STATE_HEADING[state] ?? 'FocusGuard';
 
+        // ── Cycle info line ───────────────────────────────────────────────
+        {
+            const focusMins = Math.round(this._settings.workDuration / 60);
+            const breakMins = Math.round(this._settings.breakDuration / 60);
+            const focusStr  = focusMins >= 60
+                ? `${Math.floor(focusMins / 60)}h${focusMins % 60 ? ` ${focusMins % 60}m` : ''}`
+                : `${focusMins}m`;
+            const breakStr  = breakMins >= 60
+                ? `${Math.floor(breakMins / 60)}h${breakMins % 60 ? ` ${breakMins % 60}m` : ''}`
+                : `${breakMins}m`;
+            const autoLoop  = this._settings.autoStartBreaks && this._settings.autoStartWork;
+            const repeat    = autoLoop ? ' · auto-repeating' : '';
+            this._cycleInfo.text = `${focusStr} focus → ${breakStr} break${repeat}`;
+        }
+
         // ── Focus Goal ───────────────────────────────────────────────────
         const goal = this._settings.currentFocusGoal || 'None';
         this._focusGoalValue.text = goal;
@@ -296,6 +324,15 @@ export const PanelIndicator = GObject.registerClass({
         this._pauseItem.visible  = (running || state === TimerState.SUSPENDED) && !idlePending;
         this._skipItem.visible   = (running || state === TimerState.SUSPENDED) && !idlePending;
         this._resetItem.visible  = state !== TimerState.IDLE;
+
+        // ── Idea 3: progressive icon colour during focus ──────────────────
+        const progress = this._timer.progress;
+        const overdue  = state === TimerState.WORK && this._timer.remaining <= 0;
+        const warning  = state === TimerState.WORK && progress >= 0.75 && !overdue;
+        this._icon.remove_style_class_name('focusguard-panel-icon-warning');
+        this._icon.remove_style_class_name('focusguard-panel-icon-overdue');
+        if (overdue)        this._icon.add_style_class_name('focusguard-panel-icon-overdue');
+        else if (warning)   this._icon.add_style_class_name('focusguard-panel-icon-warning');
     }
 
     refreshIfOpen() {

@@ -362,9 +362,10 @@ export const AnalyticsService = GObject.registerClass({
             factor = 1.15;
         if (factor === 1)
             return null;
-        // Clamp to sensible bounds so the adaptation never feels jarring.
+        // Clamp relative to the user's own setting — never less than 5 min,
+        // never more than 20% above their configured duration.
         const suggested = Math.round(baseSeconds * factor / 60) * 60;
-        return Math.max(300, Math.min(suggested, 5400));
+        return Math.max(300, Math.min(suggested, Math.round(baseSeconds * 1.2)));
     }
 
     // ---- Persistence --------------------------------------------------------

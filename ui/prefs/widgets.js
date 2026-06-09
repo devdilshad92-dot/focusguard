@@ -65,6 +65,48 @@ export function minutesRow(group, settings, key, title, { minMin, maxMin, subtit
     return row;
 }
 
+export function hoursMinutesRow(group, settings, key, title, { minMin = 1, maxMin, subtitle = '' }) {
+    const row = new Adw.ActionRow({ title, subtitle });
+
+    const maxHours = Math.floor(maxMin / 60);
+    const hoursAdj = new Gtk.Adjustment({ lower: 0, upper: maxHours, step_increment: 1 });
+    const minsAdj  = new Gtk.Adjustment({ lower: 0, upper: 59,       step_increment: 5 });
+
+    const hoursSpin = new Gtk.SpinButton({ adjustment: hoursAdj, width_chars: 2, valign: Gtk.Align.CENTER });
+    const minsSpin  = new Gtk.SpinButton({ adjustment: minsAdj,  width_chars: 2, valign: Gtk.Align.CENTER });
+
+    row.add_suffix(hoursSpin);
+    row.add_suffix(new Gtk.Label({ label: 'h', valign: Gtk.Align.CENTER, margin_end: 8 }));
+    row.add_suffix(minsSpin);
+    row.add_suffix(new Gtk.Label({ label: 'min', valign: Gtk.Align.CENTER }));
+    row.activatable_widget = hoursSpin;
+    group.add(row);
+
+    let syncing = false;
+    const load = () => {
+        if (syncing) return;
+        syncing = true;
+        const totalMin = Math.round(settings.get_int(key) / 60);
+        hoursSpin.value = Math.floor(totalMin / 60);
+        minsSpin.value  = totalMin % 60;
+        syncing = false;
+    };
+    load();
+    const changedId = settings.connect(`changed::${key}`, load);
+
+    const save = () => {
+        if (syncing) return;
+        syncing = true;
+        const totalMin = Math.max(minMin, hoursSpin.value * 60 + minsSpin.value);
+        settings.set_int(key, Math.min(maxMin, totalMin) * 60);
+        syncing = false;
+    };
+    hoursSpin.connect('notify::value', save);
+    minsSpin.connect('notify::value', save);
+    row.connect('destroy', () => settings.disconnect(changedId));
+    return row;
+}
+
 /**
  * A combo row backed by an enum/string key.
  * @param {Array<{id:string,label:string}>} options
