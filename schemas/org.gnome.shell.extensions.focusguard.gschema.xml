@@ -197,6 +197,18 @@
       <summary>Daily hydration goal (glasses)</summary>
     </key>
 
+    <key name="water-reminder-enabled" type="b">
+      <default>false</default>
+      <summary>Periodically remind you to drink water</summary>
+      <description>Sends a notification at a fixed interval until the daily hydration goal is met. Suppressed while idle, in deep work, or while breaks are postponed.</description>
+    </key>
+
+    <key name="water-reminder-interval" type="i">
+      <default>60</default>
+      <range min="10" max="480"/>
+      <summary>Minutes between hydration reminders</summary>
+    </key>
+
     <!-- ========================= Developer features ========================= -->
     <key name="deep-work-mode" type="b">
       <default>false</default>

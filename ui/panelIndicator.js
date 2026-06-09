@@ -1,10 +1,30 @@
 /**
- * panelIndicator.js — the top-bar button and its popup menu.
+ * panelIndicator.js — top-bar icon and dropdown dashboard.
  *
- * Shows a state icon plus the live countdown, and offers the full set of quick
- * controls (start/pause, take break, skip, snooze, deep-work, hydration) along
- * with a glance at today's stats. Everything is rebuilt reactively from timer
- * signals; the indicator owns no timers of its own.
+ * Panel: a single static blue icon. No text, no counters.
+ * Clicking it opens the dropdown — nothing else happens.
+ *
+ * Dropdown: a live dashboard with HH:MM:SS timers updating every second.
+ *
+ *   [State heading]
+ *   Focus Session       02:17:43  ← session elapsed (counts up)
+ *   Next Break          00:12:18  ← work remaining  (counts down)
+ *   Eye Reminder        00:04:32  ← 20-min rolling  (counts down)
+ *   Hydration Reminder  00:08:15  ← reminder interval (counts down)
+ *   ───────────────────────────────
+ *   Today's Focus       03:42:19
+ *   Water Consumed      5 Glasses
+ *   ───────────────────────────────
+ *   ▶ Start Focus Session
+ *   ⏸ Pause Timers
+ *   ⏭ Skip Current Reminder
+ *   💧 Add Glass of Water
+ *   🔄 Reset Water Counter ▸
+ *       ✓  Yes, reset today's water
+ *       ✗  Cancel
+ *   🔄 Reset Focus Session
+ *   ───────────────────────────────
+ *   ⚙  Settings
  */
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
@@ -12,51 +32,31 @@ import St from 'gi://St';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import { TimerState, IndicatorMode, SuspendReason } from '../utils/constants.js';
-import { formatCountdown, formatDurationLong } from '../utils/helpers.js';
+import { TimerState } from '../utils/constants.js';
+import { formatHMS, formatDurationLong } from '../utils/helpers.js';
 
-/** Symbolic icon per state — all ship with the standard icon theme. */
-const STATE_ICON = {
-    [TimerState.IDLE]: 'media-playback-stop-symbolic',
-    [TimerState.WORK]: 'focus-windows-symbolic',
-    [TimerState.BREAK]: 'face-smile-symbolic',
-    [TimerState.LONG_BREAK]: 'weather-clear-symbolic',
-    [TimerState.PAUSED]: 'media-playback-pause-symbolic',
-    [TimerState.SUSPENDED]: 'media-playback-pause-symbolic',
-};
-
-const STATE_LABEL = {
-    [TimerState.IDLE]: 'Idle',
-    [TimerState.WORK]: 'Focusing',
-    [TimerState.BREAK]: 'Break',
-    [TimerState.LONG_BREAK]: 'Long break',
-    [TimerState.PAUSED]: 'Paused',
-    [TimerState.SUSPENDED]: 'Suspended',
-};
-
-const SUSPEND_TEXT = {
-    [SuspendReason.IDLE]: 'Paused — you stepped away',
-    [SuspendReason.FULLSCREEN]: 'Paused — fullscreen app',
-    [SuspendReason.INHIBITED]: 'Paused — media / call in progress',
-    [SuspendReason.SCREEN_SHARE]: 'Paused — screen sharing',
-    [SuspendReason.DEEP_WORK]: 'Deep work — reminders off',
+const STATE_HEADING = {
+    [TimerState.IDLE]:       'Ready to focus',
+    [TimerState.WORK]:       'Focusing',
+    [TimerState.BREAK]:      'On Break',
+    [TimerState.LONG_BREAK]: 'Long Break',
+    [TimerState.PAUSED]:     'Paused',
+    [TimerState.SUSPENDED]:  'Auto-paused',
 };
 
 export const PanelIndicator = GObject.registerClass({
     GTypeName: 'FocusGuardPanelIndicator',
 }, class PanelIndicator extends PanelMenu.Button {
-    _init({ timer, settings, analytics, gitStreak, onOpenPrefs, onAddWater }) {
+    _init({ timer, settings, analytics, hydration, onOpenPrefs, onAddWater, onResetWater }) {
         super._init(0.0, 'FocusGuard', false);
 
-        this._timer = timer;
-        this._settings = settings;
-        this._analytics = analytics;
-        this._gitStreak = gitStreak;
-        this._onOpenPrefs = onOpenPrefs;
-        this._onAddWater = onAddWater;
-
-        this._baseStatsText = '';
-        this._gitStatsLine = '';
+        this._timer      = timer;
+        this._settings   = settings;
+        this._analytics  = analytics;
+        this._hydration  = hydration;
+        this._onOpenPrefs  = onOpenPrefs;
+        this._onAddWater   = onAddWater;
+        this._onResetWater = onResetWater;
 
         this._buildButton();
         this._buildMenu();
@@ -64,290 +64,195 @@ export const PanelIndicator = GObject.registerClass({
         this.update();
     }
 
-    // ---- Panel button content ----------------------------------------------
+    // ── Panel button: single blue icon, no text ──────────────────────────────
 
     _buildButton() {
-        this._box = new St.BoxLayout({
-            style_class: 'panel-status-menu-box focusguard-indicator',
-            y_align: Clutter.ActorAlign.CENTER,
-        });
         this._icon = new St.Icon({
-            icon_name: STATE_ICON[TimerState.IDLE],
-            style_class: 'system-status-icon focusguard-icon',
+            icon_name: 'focus-windows-symbolic',
+            style_class: 'system-status-icon focusguard-panel-icon',
         });
-        this._label = new St.Label({
-            text: '',
-            y_align: Clutter.ActorAlign.CENTER,
-            style_class: 'focusguard-countdown',
-        });
-        this._box.add_child(this._icon);
-        this._box.add_child(this._label);
-        this.add_child(this._box);
+        this.add_child(this._icon);
     }
 
-    // ---- Popup menu ---------------------------------------------------------
+    // ── Dropdown menu ────────────────────────────────────────────────────────
 
     _buildMenu() {
-        // Header: state + countdown.
-        this._headerItem = new PopupMenu.PopupBaseMenuItem({
-            reactive: false,
-            can_focus: false,
-        });
-        const header = new St.BoxLayout({
-            vertical: true,
-            x_expand: true,
-            style_class: 'focusguard-menu-header',
-        });
-        this._headerTitle = new St.Label({
-            text: 'FocusGuard',
-            style_class: 'focusguard-header-title',
-        });
-        this._headerSubtitle = new St.Label({
-            text: '',
-            style_class: 'focusguard-header-subtitle',
-        });
-        this._progressBar = new St.Widget({
-            style_class: 'focusguard-progress-track',
-            x_expand: true,
-            height: 6,
-            layout_manager: new Clutter.BinLayout(),
-        });
-        this._progressFill = new St.Widget({
-            style_class: 'focusguard-progress-fill',
-            x_align: Clutter.ActorAlign.START,
-        });
-        this._progressBar.add_child(this._progressFill);
-        // Re-apply the fill width whenever the track is (re)allocated, so the
-        // bar is correct even on the very first menu open before layout settles.
-        this._progressFrac = 0;
-        this._progressBar.connect('notify::width', () => this._applyProgressWidth());
-        header.add_child(this._headerTitle);
-        header.add_child(this._headerSubtitle);
-        header.add_child(this._progressBar);
-        this._headerItem.add_child(header);
-        this.menu.addMenuItem(this._headerItem);
+        // ── Live timer section ───────────────────────────────────────────
+        this._stateHeading = this._addHeading();
+        this._focusSessionValue    = this._addTimerRow('Focus Session');
+        this._nextBreakValue       = this._addTimerRow('Next Break');
+        this._eyeReminderValue     = this._addTimerRow('Eye Reminder');
+        this._hydrationValue       = this._addTimerRow('Hydration Reminder');
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Primary action (start / pause / resume).
-        this._primaryItem = new PopupMenu.PopupImageMenuItem(
-            'Start focusing', 'media-playback-start-symbolic');
-        this._primaryItem.connect('activate', () => this._timer.togglePause());
-        this.menu.addMenuItem(this._primaryItem);
+        // ── Daily stats section ──────────────────────────────────────────
+        this._todayFocusValue  = this._addTimerRow("Today's Focus");
+        this._waterConsumedValue = this._addTimerRow('Water Consumed');
 
-        // Take a break now.
-        this._breakItem = new PopupMenu.PopupImageMenuItem(
-            'Take a break now', 'face-smile-symbolic');
-        this._breakItem.connect('activate', () => this._timer.takeBreakNow());
-        this.menu.addMenuItem(this._breakItem);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Skip break / stop session.
-        this._skipItem = new PopupMenu.PopupImageMenuItem(
-            'Skip break', 'media-skip-forward-symbolic');
+        // ── Actions ──────────────────────────────────────────────────────
+        this._startItem = new PopupMenu.PopupMenuItem('▶  Start Focus Session');
+        this._startItem.connect('activate', () => this._timer.start());
+        this.menu.addMenuItem(this._startItem);
+
+        this._resumeItem = new PopupMenu.PopupMenuItem('▶  Resume');
+        this._resumeItem.connect('activate', () => this._timer.resume());
+        this.menu.addMenuItem(this._resumeItem);
+
+        this._pauseItem = new PopupMenu.PopupMenuItem('⏸  Pause Timers');
+        this._pauseItem.connect('activate', () => this._timer.pause());
+        this.menu.addMenuItem(this._pauseItem);
+
+        this._skipItem = new PopupMenu.PopupMenuItem('⏭  Skip Current Reminder');
         this._skipItem.connect('activate', () => this._timer.skipBreak());
         this.menu.addMenuItem(this._skipItem);
 
-        // Snooze submenu (populated from settings each open).
-        this._snoozeSub = new PopupMenu.PopupSubMenuMenuItem('Snooze break');
-        this.menu.addMenuItem(this._snoozeSub);
+        this._addWaterItem = new PopupMenu.PopupMenuItem('💧  Add Glass of Water');
+        this._addWaterItem.connect('activate', () => this._onAddWater?.());
+        this.menu.addMenuItem(this._addWaterItem);
+
+        // Reset water — with inline confirmation submenu
+        const resetWaterSub = new PopupMenu.PopupSubMenuMenuItem('🔄  Reset Water Counter');
+        const confirmWater = new PopupMenu.PopupMenuItem('✓  Yes, reset today\'s water');
+        confirmWater.connect('activate', () => {
+            this._onResetWater?.();
+            resetWaterSub.menu.close();
+        });
+        const cancelWater = new PopupMenu.PopupMenuItem('✗  Cancel');
+        cancelWater.connect('activate', () => resetWaterSub.menu.close());
+        resetWaterSub.menu.addMenuItem(confirmWater);
+        resetWaterSub.menu.addMenuItem(cancelWater);
+        this.menu.addMenuItem(resetWaterSub);
+
+        this._resetItem = new PopupMenu.PopupMenuItem('🔄  Reset Focus Session');
+        this._resetItem.connect('activate', () => this._timer.stop());
+        this.menu.addMenuItem(this._resetItem);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Deep work toggle.
-        this._deepWorkItem = new PopupMenu.PopupSwitchMenuItem(
-            'Deep work mode', this._settings.deepWorkMode);
-        this._deepWorkItem.connect('toggled', (_i, state) => {
-            this._settings.deepWorkMode = state;
-        });
-        this.menu.addMenuItem(this._deepWorkItem);
-
-        // Hydration counter.
-        this._waterItem = new PopupMenu.PopupImageMenuItem(
-            'Log a glass of water', 'list-add-symbolic');
-        this._waterItem.connect('activate', () => this._onAddWater?.());
-        this.menu.addMenuItem(this._waterItem);
-
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Today's stats (read-only).
-        this._statsItem = new PopupMenu.PopupBaseMenuItem({
-            reactive: false,
-            can_focus: false,
-        });
-        this._statsLabel = new St.Label({
-            text: '',
-            style_class: 'focusguard-stats',
-            x_expand: true,
-        });
-        this._statsItem.add_child(this._statsLabel);
-        this.menu.addMenuItem(this._statsItem);
-
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Settings.
-        const prefsItem = new PopupMenu.PopupImageMenuItem(
-            'Settings', 'preferences-system-symbolic');
+        // ── Settings ─────────────────────────────────────────────────────
+        const prefsItem = new PopupMenu.PopupMenuItem('⚙  Settings');
         prefsItem.connect('activate', () => this._onOpenPrefs?.());
         this.menu.addMenuItem(prefsItem);
+    }
 
-        // Rebuild dynamic bits whenever the menu opens. The git fetch (a
-        // subprocess) happens only here — once per open — not on every tick.
-        this.menu.connect('open-state-changed', (_m, open) => {
-            if (open) {
-                this._refreshMenu();
-                this._refreshGitStats();
-            }
+    _addHeading() {
+        const item  = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+        const label = new St.Label({
+            text: 'FocusGuard',
+            style_class: 'focusguard-menu-heading',
+            x_expand: true,
         });
+        item.add_child(label);
+        this.menu.addMenuItem(item);
+        return label;
     }
 
-    _rebuildSnoozeSubmenu() {
-        this._snoozeSub.menu.removeAll();
-        for (const seconds of this._settings.snoozeDurations) {
-            const item = new PopupMenu.PopupMenuItem(
-                `Snooze ${formatDurationLong(seconds)}`);
-            item.connect('activate', () => this._timer.snooze(seconds));
-            this._snoozeSub.menu.addMenuItem(item);
-        }
-        const skipOnce = new PopupMenu.PopupMenuItem('Skip this one');
-        skipOnce.connect('activate', () => this._timer.skipBreak());
-        this._snoozeSub.menu.addMenuItem(skipOnce);
+    /** Adds a two-column info row: title on left, live value on right. */
+    _addTimerRow(title) {
+        const item = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+        const box  = new St.BoxLayout({ x_expand: true });
+
+        box.add_child(new St.Label({
+            text: title,
+            style_class: 'focusguard-row-title',
+            x_expand: true,
+        }));
+        const val = new St.Label({
+            text: '—',
+            style_class: 'focusguard-row-value',
+        });
+        box.add_child(val);
+        item.add_child(box);
+        this.menu.addMenuItem(item);
+        return val;
     }
 
-    // ---- Reactive updates ---------------------------------------------------
+    // ── Signals ──────────────────────────────────────────────────────────────
 
     _connectSignals() {
         this._timerHandlers = [
-            this._timer.connect('tick', () => this.update()),
+            this._timer.connect('tick',          () => this.update()),
             this._timer.connect('phase-changed', () => this.update()),
-            this._timer.connect('suspended', () => this.update()),
-            this._timer.connect('resumed', () => this.update()),
+            this._timer.connect('suspended',     () => this.update()),
+            this._timer.connect('resumed',       () => this.update()),
         ];
-        this._settingsHandlerKeys = ['deep-work-mode', 'indicator-mode'];
-        this._settings.connect(this._settingsHandlerKeys, () => this.update());
+        this._settings.connect('indicator-mode', () => this.update());
     }
 
-    /** Update the panel button (called every tick — keep it cheap). */
-    update() {
-        const state = this._timer.state;
-        const mode = this._settings.indicatorMode;
+    // ── Live update (called every tick) ─────────────────────────────────────
 
-        // Visibility / content per indicator mode.
-        if (mode === IndicatorMode.HIDDEN) {
+    update() {
+        if (this._settings.indicatorMode === 'hidden') {
             this.visible = false;
             return;
         }
         this.visible = true;
 
-        this._icon.icon_name = STATE_ICON[state] ?? STATE_ICON[TimerState.IDLE];
-        this._icon.visible = mode !== IndicatorMode.COUNTDOWN_ONLY;
-
-        const showCountdown = mode === IndicatorMode.ICON_AND_COUNTDOWN ||
-            mode === IndicatorMode.COUNTDOWN_ONLY;
-        if (showCountdown && this._timer.isRunning) {
-            this._label.text = formatCountdown(this._timer.remaining);
-            this._label.visible = true;
-        } else if (showCountdown && state === TimerState.SUSPENDED) {
-            this._label.text = '⏸';
-            this._label.visible = true;
-        } else {
-            this._label.visible = false;
-        }
-
-        // Style hook so the CSS can colour break vs. work.
-        this._box.remove_style_class_name('focusguard-state-work');
-        this._box.remove_style_class_name('focusguard-state-break');
-        if (state === TimerState.WORK)
-            this._box.add_style_class_name('focusguard-state-work');
-        else if (state === TimerState.BREAK || state === TimerState.LONG_BREAK)
-            this._box.add_style_class_name('focusguard-state-break');
-
+        // Only update menu rows when the dropdown is actually open — there is
+        // nothing else to update (the panel icon is static).
         if (this.menu.isOpen)
             this._refreshMenu();
     }
 
-    /** Update the popup contents (only while it is open). */
     _refreshMenu() {
-        const state = this._timer.state;
+        const state     = this._timer.state;
+        const remaining = this._timer.remaining;
+        const inWork    = state === TimerState.WORK || state === TimerState.SUSPENDED;
+        const inBreak   = state === TimerState.BREAK || state === TimerState.LONG_BREAK;
+        const running   = this._timer.isRunning;
 
-        this._headerTitle.text = STATE_LABEL[state] ?? 'FocusGuard';
-        if (state === TimerState.SUSPENDED) {
-            this._headerSubtitle.text =
-                SUSPEND_TEXT[this._timer.suspendReason] ?? 'Paused';
-        } else if (this._timer.isRunning) {
-            this._headerSubtitle.text = `${formatCountdown(this._timer.remaining)} remaining`;
-        } else if (state === TimerState.PAUSED) {
-            this._headerSubtitle.text = `Paused at ${formatCountdown(this._timer.remaining)}`;
-        } else {
-            this._headerSubtitle.text = 'Ready when you are';
-        }
+        // ── State heading ─────────────────────────────────────────────────
+        this._stateHeading.text = STATE_HEADING[state] ?? 'FocusGuard';
 
-        // Progress fill width (BinLayout child sized as a fraction of track).
-        this._progressFrac = this._timer.progress;
-        this._applyProgressWidth();
+        // ── Live timers ───────────────────────────────────────────────────
+        // Focus Session: work-seconds elapsed since start() — counts up.
+        this._focusSessionValue.text =
+            state !== TimerState.IDLE
+                ? formatHMS(this._timer.sessionElapsed)
+                : '00:00:00';
 
-        // Primary action label/icon.
-        if (state === TimerState.PAUSED) {
-            this._primaryItem.label.text = 'Resume';
-            this._primaryItem.setIcon('media-playback-start-symbolic');
-        } else if (this._timer.isRunning || state === TimerState.SUSPENDED) {
-            this._primaryItem.label.text = 'Pause';
-            this._primaryItem.setIcon('media-playback-pause-symbolic');
-        } else {
-            this._primaryItem.label.text = 'Start focusing';
-            this._primaryItem.setIcon('media-playback-start-symbolic');
-        }
+        // Next Break: work-block remaining (down) or break remaining (down).
+        if (inWork)
+            this._nextBreakValue.text = formatHMS(remaining);
+        else if (inBreak)
+            this._nextBreakValue.text = formatHMS(remaining); // break ends in…
+        else
+            this._nextBreakValue.text = '00:00:00';
 
-        const inBreak = state === TimerState.BREAK || state === TimerState.LONG_BREAK;
-        this._breakItem.visible = !inBreak;
-        this._skipItem.visible = inBreak || this._timer.isRunning;
-        this._skipItem.label.text = inBreak ? 'End break early' : 'Skip next break';
-        this._snoozeSub.visible = this._timer.isRunning && !inBreak;
+        // Eye Reminder: 20-min rolling counter.
+        this._eyeReminderValue.text = inWork
+            ? formatHMS(this._timer.eyeReminderRemaining)
+            : '00:00:00';
 
-        this._deepWorkItem.setToggleState(this._settings.deepWorkMode);
-        this._rebuildSnoozeSubmenu();
-        this._refreshStats();
-    }
+        // Hydration reminder: time until next scheduled nudge.
+        const hydroSec = this._hydration?.remainingSeconds ?? 0;
+        this._hydrationValue.text = hydroSec > 0
+            ? formatHMS(hydroSec)
+            : (this._settings.waterReminderEnabled ? '00:00:00' : '—');
 
-    _applyProgressWidth() {
-        if (!this._progressBar || !this._progressFill)
-            return;
-        const trackWidth = this._progressBar.width;
-        this._progressFill.width = Math.max(0,
-            Math.round(trackWidth * (this._progressFrac ?? 0)));
-    }
-
-    _refreshStats() {
+        // ── Daily stats ───────────────────────────────────────────────────
         const today = this._analytics.getToday();
-        const focusGoal = this._settings.dailyFocusGoal;
-        const focusPct = Math.min(100, Math.round(today.focus / focusGoal * 100));
-        const streak = this._analytics.getCurrentStreak(focusGoal);
-        let text =
-            `Today  ·  ${formatDurationLong(today.focus)} focus (${focusPct}% of goal)\n` +
-            `${today.breaksTaken} breaks  ·  ${today.water} glasses of water`;
-        if (streak > 0)
-            text += `\n🔥 ${streak}-day focus streak`;
-        this._baseStatsText = text;
-        this._statsLabel.text = this._gitStatsLine
-            ? `${text}\n${this._gitStatsLine}`
-            : text;
+        this._todayFocusValue.text   = formatHMS(today.focus);
+        this._waterConsumedValue.text = `${today.water} Glass${today.water !== 1 ? 'es' : ''}`;
+
+        // ── Action visibility ─────────────────────────────────────────────
+        this._startItem.visible  = state === TimerState.IDLE;
+        this._resumeItem.visible = state === TimerState.PAUSED;
+        this._pauseItem.visible  = running || state === TimerState.SUSPENDED;
+        this._skipItem.visible   = running || state === TimerState.SUSPENDED;
+        this._resetItem.visible  = state !== TimerState.IDLE;
     }
 
-    /** Git commit streak (async subprocess) — called once per menu open. */
-    _refreshGitStats() {
-        if (!this._gitStreak?.enabled) {
-            this._gitStatsLine = '';
-            return;
-        }
-        this._gitStreak.getStats().then(({ today: commits, streak: gitStreak }) => {
-            if (!this._statsLabel || !this.menu.isOpen)
-                return;
-            this._gitStatsLine = (commits || gitStreak)
-                ? `${commits} commits today · ${gitStreak}-day commit streak`
-                : '';
-            if (this._gitStatsLine)
-                this._statsLabel.text = `${this._baseStatsText}\n${this._gitStatsLine}`;
-        }).catch(() => {});
+    /** Called externally after water is logged so the count refreshes live. */
+    refreshIfOpen() {
+        if (this.menu.isOpen)
+            this._refreshMenu();
     }
+
+    // ── Cleanup ───────────────────────────────────────────────────────────────
 
     destroy() {
         for (const id of this._timerHandlers ?? [])

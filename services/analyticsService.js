@@ -103,6 +103,12 @@ export const AnalyticsService = GObject.registerClass({
         this._scheduleFlush(true);
     }
 
+    /** Reset today's water count to zero. */
+    resetWaterToday() {
+        this._today().water = 0;
+        this._scheduleFlush(true);
+    }
+
     // ---- Queries ------------------------------------------------------------
 
     getToday() {

@@ -67,6 +67,8 @@ export class SettingsManager {
     get dailyFocusGoal() { return this.getInt(Keys.DAILY_FOCUS_GOAL); }
     get dailyBreakGoal() { return this.getInt(Keys.DAILY_BREAK_GOAL); }
     get dailyWaterGoal() { return this.getInt(Keys.DAILY_WATER_GOAL); }
+    get waterReminderEnabled() { return this.getBool(Keys.WATER_REMINDER_ENABLED); }
+    get waterReminderInterval() { return this.getInt(Keys.WATER_REMINDER_INTERVAL); }
 
     get deepWorkMode() { return this.getBool(Keys.DEEP_WORK_MODE); }
     set deepWorkMode(v) { this.setBool(Keys.DEEP_WORK_MODE, v); }

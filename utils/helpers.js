@@ -76,6 +76,37 @@ export function sample(array) {
     return array[Math.floor(Math.random() * array.length)];
 }
 
+/**
+ * Format seconds as zero-padded HH:MM:SS for live countdown displays.
+ *   0     → "00:00:00"
+ *   65    → "00:01:05"
+ *   8263  → "02:17:43"
+ */
+export function formatHMS(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+}
+
+/**
+ * Format seconds as a short human label for menu rows.
+ *   65   -> "1m 5s"
+ *   3720 -> "1h 2m"
+ *   45   -> "45s"
+ */
+export function formatMenuTime(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    if (m > 0) return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
+    return `${sec}s`;
+}
+
 /** Round to a fixed number of decimals and strip trailing zeros. */
 export function round(value, decimals = 1) {
     const f = 10 ** decimals;

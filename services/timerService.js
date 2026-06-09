@@ -60,6 +60,8 @@ export const TimerService = GObject.registerClass({
         this._breakDueEmitted = false;        // 'break-due' fired for this block
         this._parked = false;                 // ticking fully stopped (long idle)
         this._workOverride = null;            // adaptive override (seconds|null)
+        this._eyeRemaining = 0;              // 20-min rolling eye-care countdown
+        this._sessionElapsed = 0;           // work-seconds elapsed since start()
 
         this._tickId = 0;
     }
@@ -88,6 +90,11 @@ export const TimerService = GObject.registerClass({
             this._state === TimerState.LONG_BREAK;
     }
 
+    /** Seconds until the next 20-min eye-care reminder (0 when not in a work block). */
+    get eyeReminderRemaining() { return this._eyeRemaining; }
+    /** Total work-seconds elapsed since the current session was started. */
+    get sessionElapsed() { return this._sessionElapsed; }
+
     get progress() {
         if (this._phaseTotal <= 0)
             return 0;
@@ -99,6 +106,7 @@ export const TimerService = GObject.registerClass({
     /** Begin a fresh focus session (or restart from IDLE/PAUSED/finished). */
     start() {
         this._pomodoroCount = 0;
+        this._sessionElapsed = 0;
         this._beginWork();
     }
 
@@ -136,6 +144,8 @@ export const TimerService = GObject.registerClass({
         this._phaseTotal = 0;
         this._suspendReason = null;
         this._parked = false;
+        this._sessionElapsed = 0;
+        this._eyeRemaining = 0;
         this._setState(TimerState.IDLE);
     }
 
@@ -199,6 +209,7 @@ export const TimerService = GObject.registerClass({
         this._breakDueEmitted = false;
         this._suspendReason = null;
         this._parked = false;
+        this._eyeRemaining = 20 * 60; // reset 20-min eye-care timer per block
         this._setState(TimerState.WORK);
         this.emit('work-started');
         this._ensureTicking();
@@ -313,6 +324,15 @@ export const TimerService = GObject.registerClass({
             if (this._remaining > 0)
                 this._remaining -= 1;
 
+            this._sessionElapsed += 1;
+
+            // Roll the 20-min eye-care counter; only ticks during active work.
+            if (this._eyeRemaining > 0) {
+                this._eyeRemaining -= 1;
+                if (this._eyeRemaining <= 0)
+                    this._eyeRemaining = 20 * 60;
+            }
+
             if (this._remaining <= 0) {
                 if (this._settings.deepWorkMode) {
                     // Deep work: keep focusing, never interrupt. Silently start
@@ -353,7 +373,11 @@ export const TimerService = GObject.registerClass({
         // and only suppresses breaks), so it is intentionally NOT a block here.
         if (this._settings.pauseOnIdle && this._ctx.isIdle())
             return 'idle';
-        if (this._state === TimerState.WORK) {
+        // Check postpone while WORK *and* while already SUSPENDED so the timer
+        // stays suspended until the condition actually clears. Without this,
+        // state flips WORK→SUSPENDED→WORK every tick because the postpone check
+        // is skipped the moment state becomes SUSPENDED.
+        if (this._state === TimerState.WORK || this._state === TimerState.SUSPENDED) {
             const decision = this._ctx.getPostpone();
             if (decision.postpone)
                 return decision.reason;

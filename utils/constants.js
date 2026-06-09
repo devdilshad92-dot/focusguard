@@ -60,6 +60,8 @@ export const Keys = Object.freeze({
     DAILY_FOCUS_GOAL: 'daily-focus-goal',
     DAILY_BREAK_GOAL: 'daily-break-goal',
     DAILY_WATER_GOAL: 'daily-water-goal',
+    WATER_REMINDER_ENABLED: 'water-reminder-enabled',
+    WATER_REMINDER_INTERVAL: 'water-reminder-interval',
 
     DEEP_WORK_MODE: 'deep-work-mode',
     PAUSE_ON_SCREEN_SHARE: 'pause-on-screen-share',
@@ -147,6 +149,7 @@ export const BreathingPattern = Object.freeze({
 
 /** Sound theme event names handled by SoundService (freedesktop sound naming). */
 export const Sounds = Object.freeze({
+    BREAK_REMINDER: 'bell',   // simple beep when a break is due
     BREAK_START: 'message-new-instant',
     BREAK_END: 'complete',
     ESCALATE: 'dialog-warning',

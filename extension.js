@@ -26,6 +26,7 @@ import { TimerService } from './services/timerService.js';
 import { AnalyticsService } from './services/analyticsService.js';
 import { NotificationService } from './services/notificationService.js';
 import { SoundService } from './services/soundService.js';
+import { HydrationService } from './services/hydrationService.js';
 import { GitStreakService } from './services/gitStreakService.js';
 import { PanelIndicator } from './ui/panelIndicator.js';
 import { BreakOverlay } from './ui/breakOverlay.js';
@@ -62,6 +63,7 @@ export default class FocusGuardExtension extends Extension {
         // --- Presentation / output ---
         this._sound = new SoundService(this._settings);
         this._notifications = new NotificationService('alarm-symbolic');
+        this._hydration = new HydrationService(this._settings);
         this._gitStreak = new GitStreakService(this._settings);
         this._overlay = new BreakOverlay({
             settings: this._settings,
@@ -72,9 +74,10 @@ export default class FocusGuardExtension extends Extension {
             timer: this._timer,
             settings: this._settings,
             analytics: this._analytics,
-            gitStreak: this._gitStreak,
+            hydration: this._hydration,
             onOpenPrefs: () => this.openPreferences(),
             onAddWater: () => this._onAddWater(),
+            onResetWater: () => this._onResetWater(),
         });
         Main.panel.addToStatusArea(this.uuid, this._indicator, 0,
             this._settings.indicatorPosition);
@@ -83,6 +86,7 @@ export default class FocusGuardExtension extends Extension {
         this._wireTimer();
         this._wireOverlay();
         this._wireSettings();
+        this._wireHydration();
 
         // Adaptive scheduling: prime the override from recent behaviour.
         this._applyAdaptive();
@@ -107,6 +111,7 @@ export default class FocusGuardExtension extends Extension {
 
         this._timer?.destroy();
         this._analytics?.destroy(); // flushes pending stats to disk
+        this._hydration?.destroy();
         this._gitStreak?.destroy();
 
         this._inhibitor?.destroy();
@@ -119,6 +124,7 @@ export default class FocusGuardExtension extends Extension {
         this._sound = null;
         this._timer = null;
         this._analytics = null;
+        this._hydration = null;
         this._gitStreak = null;
         this._inhibitor = null;
         this._idleMonitor = null;
@@ -210,6 +216,15 @@ export default class FocusGuardExtension extends Extension {
         this._track(this._analytics, 'updated', () => this._applyAdaptive());
     }
 
+    _wireHydration() {
+        this._track(this._hydration, 'due', () => this._onWaterReminder());
+        // Re-arm the interval whenever the user toggles it or changes the period.
+        this._settings.connect(
+            [Keys.WATER_REMINDER_ENABLED, Keys.WATER_REMINDER_INTERVAL],
+            () => this._hydration.sync());
+        this._hydration.sync();
+    }
+
     // ---- Break presentation -------------------------------------------------
 
     _wantsNotification() {
@@ -225,6 +240,9 @@ export default class FocusGuardExtension extends Extension {
 
     /** Auto-start is off: ask before interrupting. */
     _presentBreakPrompt(isLong) {
+        // Simple beep so the break reminder is audible even if the user isn't
+        // looking at the screen.
+        this._sound.play(Sounds.BREAK_REMINDER);
         if (this._wantsNotification()) {
             this._notifications.notifyBreakDue(isLong, {
                 snoozeDurations: this._settings.snoozeDurations,
@@ -256,16 +274,63 @@ export default class FocusGuardExtension extends Extension {
 
     // ---- Misc ---------------------------------------------------------------
 
+    _onResetWater() {
+        this._analytics.resetWaterToday();
+        this._indicator?.refreshIfOpen();
+    }
+
     _onAddWater() {
         this._analytics.addWater(1);
         const today = this._analytics.getToday();
-        if (today.water === this._settings.dailyWaterGoal && this._wantsNotification()) {
-            this._notifications.notify({
+        const goal = this._settings.dailyWaterGoal;
+
+        // Reflect the new count in the menu right away if it is still open.
+        this._indicator?.refreshIfOpen();
+
+        // Acknowledge every glass so the click has visible feedback — gated only
+        // on notifications being enabled (this is a deliberate user action, not a
+        // break reminder, so it ignores the break reminder *style*).
+        if (!this._settings.enableNotifications)
+            return;
+        this._notifications.notify(today.water >= goal
+            ? {
                 title: 'Hydration goal reached 💧',
-                body: `${today.water} glasses today — nicely done.`,
+                body: `${today.water} of ${goal} glasses today — nicely done.`,
+                transient: true,
+            }
+            : {
+                title: 'Glass logged 💧',
+                body: `${today.water} of ${goal} glasses today.`,
                 transient: true,
             });
-        }
+    }
+
+    /** A hydration interval elapsed — nudge the user, but only when welcome. */
+    _onWaterReminder() {
+        // Respect the "never annoying" contract: stay quiet while the user is
+        // away, heads-down in deep work, or while breaks are being postponed
+        // (fullscreen / media / call / screen share).
+        if (this._idle || this._settings.deepWorkMode)
+            return;
+        if (this._inhibitor.shouldPostpone({
+            fullscreen: this._settings.postponeOnFullscreen,
+            inhibit: this._settings.postponeOnInhibit,
+            screenShare: this._settings.pauseOnScreenShare,
+        }).postpone)
+            return;
+
+        const today = this._analytics.getToday();
+        const goal = this._settings.dailyWaterGoal;
+        if (today.water >= goal)
+            return; // goal already met today — no need to nag
+
+        if (!this._settings.enableNotifications)
+            return;
+        this._notifications.notify({
+            title: 'Time to hydrate 💧',
+            body: `${today.water} of ${goal} glasses so far — grab a glass of water.`,
+            actions: [{ label: 'Log a glass', callback: () => this._onAddWater() }],
+        });
     }
 
     _applyAdaptive() {
