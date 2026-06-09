@@ -1,7 +1,7 @@
 {
   "uuid": "focusguard@dilshad.dev",
   "name": "FocusGuard",
-  "description": "Premium break reminders, Pomodoro focus sessions, eye-care, hydration and posture nudges, plus productivity analytics — built for developers, remote workers and office professionals. Smart, idle-aware and never annoying.",
+  "description": "Break reminders, Pomodoro focus sessions, eye-care, hydration tracking, posture nudges and productivity analytics for GNOME.",
   "version": 1,
   "version-name": "1.0.0",
   "shell-version": ["45", "46", "47", "48"],
