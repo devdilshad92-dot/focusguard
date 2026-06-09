@@ -5,10 +5,10 @@
   "version": 3,
   "version-name": "1.0.2",
   "shell-version": ["45", "46", "47", "48", "49"],
-  "url": "https://github.com/dilshad/focusguard",
+  "url": "https://github.com/devdilshad92-dot/focusguard",
   "settings-schema": "org.gnome.shell.extensions.focusguard",
   "gettext-domain": "focusguard",
   "donations": {
-    "github": ["dilshad"]
+    "github": ["devdilshad92-dot"]
   }
 }
