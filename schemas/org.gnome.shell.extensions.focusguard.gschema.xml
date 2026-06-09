@@ -79,7 +79,7 @@
     </key>
 
     <key name="idle-threshold" type="i">
-      <default>120</default>
+      <default>600</default>
       <range min="30" max="1800"/>
       <summary>Idle threshold (seconds)</summary>
       <description>How long with no input before the user is considered idle.</description>
@@ -179,6 +179,12 @@
     </key>
 
     <!-- ========================= Goals ========================= -->
+    <key name="current-focus-goal" type="s">
+      <default>''</default>
+      <summary>Current focus goal</summary>
+      <description>The current task or focus goal</description>
+    </key>
+
     <key name="daily-focus-goal" type="i">
       <default>14400</default>
       <range min="1800" max="57600"/>

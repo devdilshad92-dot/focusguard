@@ -1,10 +1,9 @@
 /**
- * breakOverlay.js — the optional fullscreen break experience.
+ * breakOverlay.js — the fullscreen break experience.
  *
  * Presents a calm, dimmed overlay with a live break countdown and rotating
  * wellness content (stretch, eye-care, hydration, posture) plus an optional
- * guided box-breathing animation. It grabs the keyboard so Esc/Enter work, and
- * tears everything down — actors, modal grab and animation timers — on close.
+ * guided box-breathing animation. It handles both regular breaks and eye breaks.
  */
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
@@ -34,16 +33,20 @@ export const BreakOverlay = GObject.registerClass({
         this._breathId = 0;
         this._tipId = 0;
         this._tickHandler = 0;
+        this._type = 'short';
     }
 
     get isShowing() {
         return this._actor !== null;
     }
 
-    /** Show the overlay for a (long) break. */
-    show(isLong) {
+    /** Show the overlay. type can be 'short', 'long', or 'eye' */
+    show(type = 'short') {
         if (this._actor)
             return;
+
+        this._type = type;
+        const isEye = type === 'eye';
 
         const monitor = Main.layoutManager.primaryMonitor;
         this._actor = new St.Widget({
@@ -67,8 +70,15 @@ export const BreakOverlay = GObject.registerClass({
         this._actor.add_child(content);
 
         // Heading.
+        let headingText = 'Time for a break';
+        if (type === 'long') {
+            headingText = 'Time for a long break';
+        } else if (isEye) {
+            headingText = 'Look away from the screen';
+        }
+
         content.add_child(new St.Label({
-            text: isLong ? 'Time for a long break' : 'Time for a break',
+            text: headingText,
             style_class: 'focusguard-overlay-title',
             x_align: Clutter.ActorAlign.CENTER,
         }));
@@ -82,14 +92,13 @@ export const BreakOverlay = GObject.registerClass({
         content.add_child(this._countdown);
 
         // Breathing circle (optional).
-        if (this._settings.showBreathing) {
+        if (this._settings.showBreathing && !isEye) {
             this._breathCircle = new St.Widget({
                 style_class: 'focusguard-breath-circle',
                 width: 120,
                 height: 120,
                 x_align: Clutter.ActorAlign.CENTER,
             });
-            // Scale around the centre so the breathing animation feels natural.
             this._breathCircle.set_pivot_point(0.5, 0.5);
             const breathWrap = new St.Bin({
                 x_align: Clutter.ActorAlign.CENTER,
@@ -108,27 +117,46 @@ export const BreakOverlay = GObject.registerClass({
 
         // Rotating wellness tip.
         this._tipLabel = new St.Label({
-            text: this._pickTip(),
+            text: this._pickTip(isEye),
             style_class: 'focusguard-overlay-tip',
             x_align: Clutter.ActorAlign.CENTER,
         });
         this._tipLabel.clutter_text.line_wrap = true;
         content.add_child(this._tipLabel);
-        this._startTipRotation();
+        this._startTipRotation(isEye);
 
         // Actions.
         const buttons = new St.BoxLayout({
             style_class: 'focusguard-overlay-buttons',
             x_align: Clutter.ActorAlign.CENTER,
         });
-        if (this._settings.allowSkipBreak) {
+
+        if (isEye) {
             const skip = new St.Button({
-                label: 'Skip break  (Esc)',
+                label: 'Skip  (Esc)',
                 style_class: 'focusguard-overlay-button',
                 can_focus: true,
             });
-            skip.connect('clicked', () => this.emit('skip-requested'));
+            skip.connect('clicked', () => this._timer.skipEyeBreak());
             buttons.add_child(skip);
+
+            const snooze = new St.Button({
+                label: 'Snooze 5m',
+                style_class: 'focusguard-overlay-button',
+                can_focus: true,
+            });
+            snooze.connect('clicked', () => this._timer.snoozeEyeBreak());
+            buttons.add_child(snooze);
+        } else {
+            if (this._settings.allowSkipBreak) {
+                const skip = new St.Button({
+                    label: 'Skip break  (Esc)',
+                    style_class: 'focusguard-overlay-button',
+                    can_focus: true,
+                });
+                skip.connect('clicked', () => this.emit('skip-requested'));
+                buttons.add_child(skip);
+            }
         }
         content.add_child(buttons);
 
@@ -175,8 +203,6 @@ export const BreakOverlay = GObject.registerClass({
 
     _grabKeyboard() {
         try {
-            // Shell.ActionMode.NORMAL keeps the rest of the shell responsive
-            // (e.g. media keys) while we hold focus for Esc/Enter.
             this._grab = Main.pushModal(this._actor, { actionMode: 1 << 0 });
             this._actor.grab_key_focus();
         } catch (e) {
@@ -185,16 +211,23 @@ export const BreakOverlay = GObject.registerClass({
         }
         this._keyHandler = this._actor.connect('key-press-event', (_a, event) => {
             const sym = event.get_key_symbol();
-            if (sym === Clutter.KEY_Escape && this._settings.allowSkipBreak) {
-                this.emit('skip-requested');
-                return Clutter.EVENT_STOP;
+            if (sym === Clutter.KEY_Escape) {
+                if (this._type === 'eye') {
+                    this._timer.skipEyeBreak();
+                    return Clutter.EVENT_STOP;
+                } else if (this._settings.allowSkipBreak) {
+                    this.emit('skip-requested');
+                    return Clutter.EVENT_STOP;
+                }
             }
             return Clutter.EVENT_PROPAGATE;
         });
     }
 
     _releaseKeyboard() {
-        // The key handler lives on the actor and dies with it; just drop modal.
+        if (this._keyHandler && this._actor) {
+            this._actor.disconnect(this._keyHandler);
+        }
         this._keyHandler = 0;
         if (this._grab) {
             Main.popModal(this._grab);
@@ -240,7 +273,10 @@ export const BreakOverlay = GObject.registerClass({
 
     // ---- Rotating tips ------------------------------------------------------
 
-    _pickTip() {
+    _pickTip(isEye = false) {
+        if (isEye) {
+            return sample(EyeCareTips);
+        }
         const pools = [];
         if (this._settings.showEyeCare)
             pools.push(EyeCareTips);
@@ -255,11 +291,11 @@ export const BreakOverlay = GObject.registerClass({
         return sample(pool);
     }
 
-    _startTipRotation() {
+    _startTipRotation(isEye = false) {
         this._tipId = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, 12, () => {
             if (!this._tipLabel)
                 return GLib.SOURCE_REMOVE;
-            this._tipLabel.text = this._pickTip();
+            this._tipLabel.text = this._pickTip(isEye);
             return GLib.SOURCE_CONTINUE;
         });
     }

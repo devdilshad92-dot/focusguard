@@ -1,28 +1,13 @@
 /**
- * timerService.js — the FocusGuard state machine.
+ * timerService.js — the unified FocusGuard state machine.
  *
- * Responsible for *when* things happen; it knows nothing about how breaks look
- * or how analytics are stored. It drives a single 1-second GLib timeout while a
- * session is running and parks itself completely (zero timers) when the user is
- * away for a long time, so idle CPU is genuinely nil.
+ * Implements a single source of truth timer engine for all 4 timers:
+ * 1. Focus Session (elapsed work-seconds, counts up)
+ * 2. Break Timer (countdown to break end / next break)
+ * 3. Eye Reminder (20-min rolling countdown for eye care)
+ * 4. Hydration Reminder (periodic countdown for drinking water)
  *
- * State machine
- * -------------
- *            start()                remaining==0
- *   IDLE ───────────────▶ WORK ──────────────────▶ BREAK / LONG_BREAK
- *     ▲                    │  ▲                          │
- *     │ stop()            pause()│ resume()       remaining==0│ (auto-start-work)
- *     │                    ▼  │                          ▼
- *     └──────────────── PAUSED                          WORK
- *
- * Any running phase can transition to SUSPENDED (idle / fullscreen / media /
- * deep-work) and back without losing the countdown.
- *
- * The host (extension.js) supplies a small `context` object so the timer stays
- * decoupled and unit-testable:
- *   context.isIdle(): boolean
- *   context.idleTimeMs(): number
- *   context.getPostpone(): { postpone: boolean, reason: string|null }
+ * It uses absolute system time to eliminate drift and runs a single heartbeat loop.
  */
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
@@ -33,16 +18,22 @@ import { Logger } from '../utils/logger.js';
 export const TimerService = GObject.registerClass({
     GTypeName: 'FocusGuardTimerService',
     Signals: {
-        'tick': {},                                              // read getters
-        'phase-changed': { param_types: [GObject.TYPE_STRING] }, // new state
+        'tick': {},
+        'phase-changed': { param_types: [GObject.TYPE_STRING] },
         'work-started': {},
-        'break-due': { param_types: [GObject.TYPE_BOOLEAN] },     // isLong, manual-start
-        'break-started': { param_types: [GObject.TYPE_BOOLEAN] }, // isLong
+        'break-due': { param_types: [GObject.TYPE_BOOLEAN] },
+        'break-started': { param_types: [GObject.TYPE_BOOLEAN] },
         'break-finished': { param_types: [GObject.TYPE_BOOLEAN] },
-        'suspended': { param_types: [GObject.TYPE_STRING] },     // reason
+        'eye-break-started': {},
+        'eye-break-completed': {},
+        'eye-break-skipped': {},
+        'eye-break-finished': {},
+        'hydration-due': {},
+        'suspended': { param_types: [GObject.TYPE_STRING] },
         'resumed': {},
-        'escalated': { param_types: [GObject.TYPE_INT] },        // nudge count
-        'work-reset': {},                                        // long idle reset
+        'escalated': { param_types: [GObject.TYPE_INT] },
+        'work-reset': {},
+        'user-returned-from-idle': {},
     },
 }, class TimerService extends GObject.Object {
     _init(settings, context) {
@@ -51,25 +42,25 @@ export const TimerService = GObject.registerClass({
         this._ctx = context;
 
         this._state = TimerState.IDLE;
-        this._resumeState = TimerState.WORK;  // what to return to after suspend
+        this._resumeState = TimerState.WORK;
         this._suspendReason = null;
-        this._remaining = 0;                  // seconds left in current phase
-        this._phaseTotal = 0;                 // seconds the phase started with
-        this._pomodoroCount = 0;              // completed work blocks this cycle
-        this._escalationAccum = 0;            // seconds since last nudge
-        this._breakDueEmitted = false;        // 'break-due' fired for this block
-        this._parked = false;                 // ticking fully stopped (long idle)
-        this._workOverride = null;            // adaptive override (seconds|null)
-        this._eyeRemaining = 0;              // 20-min rolling eye-care countdown
-        this._sessionElapsed = 0;           // work-seconds elapsed since start()
+        this._remaining = 0;
+        this._phaseTotal = 0;
+        this._pomodoroCount = 0;
+        this._escalationAccum = 0;
+        this._breakDueEmitted = false;
+        this._parked = false;
+        this._workOverride = null;
+        this._eyeRemaining = 0;
+        this._sessionElapsed = 0;
+        this._hydrationRemaining = Math.max(60, this._settings.waterReminderInterval * 60);
 
         this._tickId = 0;
+        this._lastTickMs = 0;
+        this._accumulatedTimeMs = 0;
+        this._idlePendingResume = false;
     }
 
-    /**
-     * Adaptive scheduling: the host may override the next focus block length
-     * (e.g. shorten it when compliance is poor). `null` reverts to the setting.
-     */
     setWorkOverride(seconds) {
         this._workOverride = seconds && seconds > 0 ? Math.round(seconds) : null;
     }
@@ -87,12 +78,12 @@ export const TimerService = GObject.registerClass({
     get isRunning() {
         return this._state === TimerState.WORK ||
             this._state === TimerState.BREAK ||
-            this._state === TimerState.LONG_BREAK;
+            this._state === TimerState.LONG_BREAK ||
+            this._state === TimerState.EYE_BREAK;
     }
 
-    /** Seconds until the next 20-min eye-care reminder (0 when not in a work block). */
     get eyeReminderRemaining() { return this._eyeRemaining; }
-    /** Total work-seconds elapsed since the current session was started. */
+    get hydrationReminderRemaining() { return this._hydrationRemaining; }
     get sessionElapsed() { return this._sessionElapsed; }
 
     get progress() {
@@ -101,16 +92,17 @@ export const TimerService = GObject.registerClass({
         return clamp(1 - this._remaining / this._phaseTotal, 0, 1);
     }
 
+    get idlePendingResume() { return this._idlePendingResume; }
+
     // ---- Lifecycle ----------------------------------------------------------
 
-    /** Begin a fresh focus session (or restart from IDLE/PAUSED/finished). */
     start() {
         this._pomodoroCount = 0;
         this._sessionElapsed = 0;
+        this._idlePendingResume = false;
         this._beginWork();
     }
 
-    /** Toggle pause/resume from the user's perspective. */
     togglePause() {
         if (this._state === TimerState.PAUSED)
             this.resume();
@@ -125,6 +117,7 @@ export const TimerService = GObject.registerClass({
             return;
         if (this._state !== TimerState.SUSPENDED)
             this._resumeState = this._state;
+        this._idlePendingResume = false;
         this._setState(TimerState.PAUSED);
         this._stopTicking();
     }
@@ -133,11 +126,11 @@ export const TimerService = GObject.registerClass({
         if (this._state !== TimerState.PAUSED)
             return;
         this._suspendReason = null;
+        this._idlePendingResume = false;
         this._setState(this._resumeState);
         this._ensureTicking();
     }
 
-    /** Stop entirely and clear the session. */
     stop() {
         this._stopTicking();
         this._remaining = 0;
@@ -146,18 +139,17 @@ export const TimerService = GObject.registerClass({
         this._parked = false;
         this._sessionElapsed = 0;
         this._eyeRemaining = 0;
+        this._idlePendingResume = false;
         this._setState(TimerState.IDLE);
     }
 
     // ---- User actions on a pending/active break -----------------------------
 
-    /** Jump straight into a break, ending the current focus block early. */
     takeBreakNow() {
         if (this._state === TimerState.WORK || this._state === TimerState.IDLE)
             this._beginBreak();
     }
 
-    /** Skip the upcoming/active break and return to work. */
     skipBreak() {
         if (this._state === TimerState.BREAK || this._state === TimerState.LONG_BREAK)
             this._finishBreak(/* skipped */ true);
@@ -165,12 +157,10 @@ export const TimerService = GObject.registerClass({
             this._beginWork();
     }
 
-    /** Postpone the break by `seconds`, staying in work with a short timer. */
     snooze(seconds) {
         this._escalationAccum = 0;
         this._breakDueEmitted = false;
         this._remaining = Math.max(1, seconds);
-        // Keep WORK phase but shrink the remaining time to the snooze window.
         if (this._state !== TimerState.WORK)
             this._setState(TimerState.WORK);
         this._phaseTotal = this._remaining;
@@ -178,24 +168,62 @@ export const TimerService = GObject.registerClass({
         this.emit('tick');
     }
 
-    /** Re-evaluate after a settings change (durations, mode, etc.). */
     refreshFromSettings() {
-        // Only adopt new durations on the next phase; the current countdown is
-        // intentionally preserved so a settings save doesn't yank time away.
+        const maxInterval = Math.max(60, this._settings.waterReminderInterval * 60);
+        if (this._hydrationRemaining > maxInterval) {
+            this._hydrationRemaining = maxInterval;
+        }
     }
 
-    /** Called by the host when the user returns from a parked idle state. */
     onUserActive() {
         if (this._parked) {
             this._parked = false;
-            this._leaveSuspend();
+            this._idlePendingResume = true;
             this._ensureTicking();
+            this.emit('user-returned-from-idle');
+        } else if (this._state === TimerState.SUSPENDED && this._suspendReason === 'idle') {
+            this._idlePendingResume = true;
+            this.emit('user-returned-from-idle');
         }
+    }
+
+    resumeFromIdle() {
+        this._idlePendingResume = false;
+        this._leaveSuspend();
+    }
+
+    dismissFromIdle() {
+        this._idlePendingResume = false;
+        this._suspendReason = null;
+        this._setState(TimerState.PAUSED);
+        this._stopTicking();
+    }
+
+    // ---- Eye Care Actions ----------------------------------------------------
+
+    snoozeEyeBreak() {
+        if (this._state === TimerState.EYE_BREAK) {
+            this._eyeRemaining = 5 * 60; // 5 mins snooze
+            this._remaining = this._remainingBeforeEyeBreak ?? 0;
+            this._phaseTotal = this._phaseTotalBeforeEyeBreak ?? this._settings.workDuration;
+            this._setState(TimerState.WORK);
+            this.emit('eye-break-finished');
+        }
+    }
+
+    skipEyeBreak() {
+        if (this._state === TimerState.EYE_BREAK) {
+            this._finishEyeBreak(true);
+        }
+    }
+
+    resetHydrationTimer() {
+        this._hydrationRemaining = Math.max(60, this._settings.waterReminderInterval * 60);
+        this.emit('tick');
     }
 
     // ---- Internal phase transitions ----------------------------------------
 
-    /** Whether the *next* break in the cycle would be a long one. */
     _wouldBeLong() {
         if (this._settings.timerMode !== TimerMode.POMODORO)
             return false;
@@ -209,7 +237,7 @@ export const TimerService = GObject.registerClass({
         this._breakDueEmitted = false;
         this._suspendReason = null;
         this._parked = false;
-        this._eyeRemaining = 20 * 60; // reset 20-min eye-care timer per block
+        this._eyeRemaining = 20 * 60;
         this._setState(TimerState.WORK);
         this.emit('work-started');
         this._ensureTicking();
@@ -234,7 +262,7 @@ export const TimerService = GObject.registerClass({
         const wasLong = this._state === TimerState.LONG_BREAK;
         this._pomodoroCount += 1;
         if (wasLong)
-            this._pomodoroCount = 0; // reset the cycle after a long break
+            this._pomodoroCount = 0;
         this.emit('break-finished', skipped);
 
         if (this._settings.autoStartWork)
@@ -243,18 +271,43 @@ export const TimerService = GObject.registerClass({
             this.stop();
     }
 
+    _triggerEyeBreak() {
+        this._stateBeforeEyeBreak = this._state;
+        this._remainingBeforeEyeBreak = this._remaining;
+        this._phaseTotalBeforeEyeBreak = this._phaseTotal;
+        this._setState(TimerState.EYE_BREAK);
+        this._remaining = 20;
+        this._phaseTotal = 20;
+        this.emit('eye-break-started');
+    }
+
+    _finishEyeBreak(skipped = false) {
+        if (skipped) {
+            this.emit('eye-break-skipped');
+        } else {
+            this.emit('eye-break-completed');
+        }
+        this._eyeRemaining = 20 * 60;
+        this._remaining = this._remainingBeforeEyeBreak ?? 0;
+        this._phaseTotal = this._phaseTotalBeforeEyeBreak ?? this._settings.workDuration;
+        this._setState(TimerState.WORK);
+        this.emit('eye-break-finished');
+    }
+
     // ---- Suspend / resume (automatic) --------------------------------------
 
     _enterSuspend(reason) {
         if (this._state === TimerState.SUSPENDED) {
             if (this._suspendReason !== reason) {
                 this._suspendReason = reason;
+                Logger.info(`Timer auto-pause reason changed: ${reason}`);
                 this.emit('suspended', reason);
             }
             return;
         }
         this._resumeState = this._state;
         this._suspendReason = reason;
+        Logger.info(`Timer auto-paused. Reason: ${reason}`);
         this._setState(TimerState.SUSPENDED);
         this.emit('suspended', reason);
     }
@@ -267,11 +320,13 @@ export const TimerService = GObject.registerClass({
         this.emit('resumed');
     }
 
-    // ---- The single 1-second heartbeat -------------------------------------
+    // ---- Heartbeat & Ticking ------------------------------------------------
 
     _ensureTicking() {
         if (this._tickId)
             return;
+        this._lastTickMs = Date.now();
+        this._accumulatedTimeMs = 0;
         this._tickId = GLib.timeout_add(
             GLib.PRIORITY_DEFAULT, TICK_INTERVAL_MS, () => this._onTick());
     }
@@ -284,99 +339,145 @@ export const TimerService = GObject.registerClass({
     }
 
     _onTick() {
+        if (!this._tickId)
+            return GLib.SOURCE_REMOVE;
         try {
-            this._tickBody();
+            const now = Date.now();
+            const deltaMs = now - this._lastTickMs;
+            this._lastTickMs = now;
+
+            this._accumulatedTimeMs += deltaMs;
+            const elapsedSec = Math.floor(this._accumulatedTimeMs / 1000);
+            this._accumulatedTimeMs %= 1000;
+
+            if (elapsedSec > 0) {
+                const safeTicks = Math.min(elapsedSec, 86400);
+                for (let i = 0; i < safeTicks; i++) {
+                    this._tickOneSecond();
+                }
+                this.emit('tick');
+            }
         } catch (e) {
             Logger.trace(e, 'timer tick');
         }
-        return GLib.SOURCE_CONTINUE;
+        return this._tickId ? GLib.SOURCE_CONTINUE : GLib.SOURCE_REMOVE;
     }
 
-    _tickBody() {
+    _tickOneSecond() {
         const blockReason = this._computeBlockReason();
 
-        // --- Long-idle parking: stop all timers until the user returns. ---
-        if (blockReason === 'idle' &&
+        // --- Long-idle parking ---
+        if (!this._parked && blockReason === 'idle' &&
             this._ctx.idleTimeMs() >= this._settings.idleResetThreshold * 1000) {
-            if (this._resumeState === TimerState.WORK ||
-                this._state === TimerState.WORK ||
-                this._state === TimerState.SUSPENDED) {
+            if (this._state === TimerState.WORK || this._state === TimerState.SUSPENDED) {
                 this._remaining = this._effectiveWorkDuration;
                 this._phaseTotal = this._remaining;
                 this.emit('work-reset');
             }
             this._enterSuspend('idle');
             this._parked = true;
-            this._stopTicking();
+            return;
+        }
+
+        if (this._idlePendingResume) {
+            this._tickHydrationOneSecond();
             return;
         }
 
         if (blockReason) {
             this._enterSuspend(blockReason);
-            return; // keep ticking so we notice the moment it clears
+            this._tickHydrationOneSecond();
+            return;
         }
 
-        if (this._state === TimerState.SUSPENDED)
+        if (this._state === TimerState.SUSPENDED) {
             this._leaveSuspend();
+        }
 
-        // --- Normal countdown. ---
+        // --- State Countdown ---
         if (this._state === TimerState.WORK) {
-            if (this._remaining > 0)
+            if (this._remaining > 0) {
                 this._remaining -= 1;
-
+            }
             this._sessionElapsed += 1;
 
-            // Roll the 20-min eye-care counter; only ticks during active work.
-            if (this._eyeRemaining > 0) {
-                this._eyeRemaining -= 1;
-                if (this._eyeRemaining <= 0)
-                    this._eyeRemaining = 20 * 60;
+            if (this._settings.showEyeCare) {
+                if (this._eyeRemaining > 0) {
+                    this._eyeRemaining -= 1;
+                    if (this._eyeRemaining <= 0) {
+                        if (this._settings.deepWorkMode && this._detectIntenseWork()) {
+                            // Deep work mode: do not interrupt. Keep at 0.
+                        } else {
+                            this._triggerEyeBreak();
+                            return;
+                        }
+                    }
+                } else if (this._eyeRemaining <= 0) {
+                    if (!(this._settings.deepWorkMode && this._detectIntenseWork())) {
+                        this._triggerEyeBreak();
+                        return;
+                    }
+                }
             }
 
             if (this._remaining <= 0) {
-                if (this._settings.deepWorkMode) {
-                    // Deep work: keep focusing, never interrupt. Silently start
-                    // a fresh block so focus time keeps accruing.
-                    this._beginWork();
+                if (this._settings.deepWorkMode && this._detectIntenseWork()) {
+                    // Deep work mode: do not interrupt work. Keep remaining at 0.
                 } else if (this._settings.autoStartBreaks) {
                     this._beginBreak();
+                    return;
                 } else {
-                    // Hold in "overtime": the break is due but the user must
-                    // act. We announce it once, then escalate periodically.
                     this._remaining = 0;
                     if (!this._breakDueEmitted) {
                         this._breakDueEmitted = true;
                         this.emit('break-due', this._wouldBeLong());
                     }
                     this._maybeEscalate();
-                    this.emit('tick');
                 }
-            } else {
-                this.emit('tick');
             }
-        } else if (this._state === TimerState.BREAK ||
-                   this._state === TimerState.LONG_BREAK) {
-            this._remaining -= 1;
-            if (this._remaining <= 0)
+        } else if (this._state === TimerState.BREAK || this._state === TimerState.LONG_BREAK) {
+            if (this._remaining > 0) {
+                this._remaining -= 1;
+            }
+            if (this._remaining <= 0) {
                 this._finishBreak(false);
-            else
-                this.emit('tick');
+                return;
+            }
+        } else if (this._state === TimerState.EYE_BREAK) {
+            if (this._remaining > 0) {
+                this._remaining -= 1;
+            }
+            if (this._remaining <= 0) {
+                this._finishEyeBreak(false);
+                return;
+            }
+        }
+
+        this._tickHydrationOneSecond();
+    }
+
+    _tickHydrationOneSecond() {
+        if (this._settings.waterReminderEnabled) {
+            if (this._hydrationRemaining > 0) {
+                this._hydrationRemaining -= 1;
+            }
+            if (this._hydrationRemaining <= 0) {
+                if (this._settings.deepWorkMode && this._detectIntenseWork()) {
+                    // Deep work mode: do not interrupt. Keep at 0.
+                } else {
+                    this.emit('hydration-due');
+                    this._hydrationRemaining = Math.max(60, this._settings.waterReminderInterval * 60);
+                }
+            }
         }
     }
 
-    /**
-     * Decide whether the timer should currently be held. Order matters:
-     * idle first, then external inhibitors (fullscreen / media / screen-share).
-     */
     _computeBlockReason() {
-        // Note: deep-work is handled in the WORK branch (it keeps you focusing
-        // and only suppresses breaks), so it is intentionally NOT a block here.
-        if (this._settings.pauseOnIdle && this._ctx.isIdle())
-            return 'idle';
-        // Check postpone while WORK *and* while already SUSPENDED so the timer
-        // stays suspended until the condition actually clears. Without this,
-        // state flips WORK→SUSPENDED→WORK every tick because the postpone check
-        // is skipped the moment state becomes SUSPENDED.
+        if (this._settings.pauseOnIdle && this._ctx.isIdle()) {
+            if (this._state === TimerState.WORK || (this._state === TimerState.SUSPENDED && this._resumeState === TimerState.WORK)) {
+                return 'idle';
+            }
+        }
         if (this._state === TimerState.WORK || this._state === TimerState.SUSPENDED) {
             const decision = this._ctx.getPostpone();
             if (decision.postpone)
@@ -385,17 +486,24 @@ export const TimerService = GObject.registerClass({
         return null;
     }
 
-    /**
-     * Escalation only matters once a break is *due* but is being held back
-     * (e.g. the user dismissed the notification). We approximate "ignored" as
-     * the work block running into overtime when auto-start is off — here we
-     * surface periodic nudges while a break-style reminder is pending.
-     */
+    _detectIntenseWork() {
+        try {
+            const win = global.display.focus_window;
+            if (!win)
+                return false;
+            const wmClass = (win.get_wm_class() || '').toLowerCase();
+            const isWorkApp = ['code', 'cursor', 'terminal', 'gnome-terminal', 'ptyxis', 'kgx', 'alacritty', 'kitty', 'idea', 'jetbrains', 'pycharm', 'webstorm', 'clion', 'rider', 'goland', 'phpstorm', 'rubymine', 'studio', 'android-studio'].some(app => wmClass.includes(app));
+            const idleTimeMs = this._ctx.idleTimeMs();
+            return isWorkApp && (idleTimeMs < 15000);
+        } catch (e) {
+            Logger.debug('Failed to check deep work focus window:', e.message);
+            return false;
+        }
+    }
+
     _maybeEscalate() {
         if (!this._settings.escalateIgnored)
             return;
-        // Only escalate in the final stretch where a reminder is imminent and
-        // the user keeps pushing past it via snooze.
         if (this._remaining > 0)
             return;
         this._escalationAccum += 1;

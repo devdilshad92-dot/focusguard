@@ -2,69 +2,51 @@
  * panelIndicator.js — top-bar icon and dropdown dashboard.
  *
  * Panel: a single static blue icon. No text, no counters.
- * Clicking it opens the dropdown — nothing else happens.
- *
  * Dropdown: a live dashboard with HH:MM:SS timers updating every second.
- *
- *   [State heading]
- *   Focus Session       02:17:43  ← session elapsed (counts up)
- *   Next Break          00:12:18  ← work remaining  (counts down)
- *   Eye Reminder        00:04:32  ← 20-min rolling  (counts down)
- *   Hydration Reminder  00:08:15  ← reminder interval (counts down)
- *   ───────────────────────────────
- *   Today's Focus       03:42:19
- *   Water Consumed      5 Glasses
- *   ───────────────────────────────
- *   ▶ Start Focus Session
- *   ⏸ Pause Timers
- *   ⏭ Skip Current Reminder
- *   💧 Add Glass of Water
- *   🔄 Reset Water Counter ▸
- *       ✓  Yes, reset today's water
- *       ✗  Cancel
- *   🔄 Reset Focus Session
- *   ───────────────────────────────
- *   ⚙  Settings
  */
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
+import GLib from 'gi://GLib';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { TimerState } from '../utils/constants.js';
-import { formatHMS, formatDurationLong } from '../utils/helpers.js';
+import { formatHMS } from '../utils/helpers.js';
 
 const STATE_HEADING = {
     [TimerState.IDLE]:       'Ready to focus',
     [TimerState.WORK]:       'Focusing',
     [TimerState.BREAK]:      'On Break',
     [TimerState.LONG_BREAK]: 'Long Break',
+    [TimerState.EYE_BREAK]:  'Eye Care Break',
     [TimerState.PAUSED]:     'Paused',
     [TimerState.SUSPENDED]:  'Auto-paused',
 };
 
 export const PanelIndicator = GObject.registerClass({
     GTypeName: 'FocusGuardPanelIndicator',
+    Signals: {
+        'reset-water-requested': {},
+        'set-goal-requested': {},
+        'weekly-report-requested': {},
+        'start-session-requested': {},
+    },
 }, class PanelIndicator extends PanelMenu.Button {
-    _init({ timer, settings, analytics, hydration, onOpenPrefs, onAddWater, onResetWater }) {
+    _init({ timer, settings, analytics, onOpenPrefs, onAddWater }) {
         super._init(0.0, 'FocusGuard', false);
 
         this._timer      = timer;
         this._settings   = settings;
         this._analytics  = analytics;
-        this._hydration  = hydration;
         this._onOpenPrefs  = onOpenPrefs;
         this._onAddWater   = onAddWater;
-        this._onResetWater = onResetWater;
 
         this._buildButton();
         this._buildMenu();
         this._connectSignals();
         this.update();
     }
-
-    // ── Panel button: single blue icon, no text ──────────────────────────────
 
     _buildButton() {
         this._icon = new St.Icon({
@@ -73,8 +55,6 @@ export const PanelIndicator = GObject.registerClass({
         });
         this.add_child(this._icon);
     }
-
-    // ── Dropdown menu ────────────────────────────────────────────────────────
 
     _buildMenu() {
         // ── Live timer section ───────────────────────────────────────────
@@ -86,15 +66,26 @@ export const PanelIndicator = GObject.registerClass({
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+        // ── Focus Goal ───────────────────────────────────────────────────
+        this._focusGoalValue       = this._addTimerRow('Current Focus Goal');
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
         // ── Daily stats section ──────────────────────────────────────────
-        this._todayFocusValue  = this._addTimerRow("Today's Focus");
-        this._waterConsumedValue = this._addTimerRow('Water Consumed');
+        this._todayFocusValue        = this._addTimerRow("Today's Focus");
+        this._focusScoreValue        = this._addTimerRow("Today's Focus Score");
+        this._burnoutRiskValue       = this._addTimerRow("Burnout Risk");
+        this._recoveryScoreValue     = this._addTimerRow("Recovery Score");
+        this._waterConsumedValue     = this._addTimerRow('Water Consumed');
+        this._lastWaterLoggedValue   = this._addTimerRow('Last Water Logged');
+        this._eyeCompletedValue      = this._addTimerRow('Eye Breaks Completed');
+        this._hydrationCompletedValue = this._addTimerRow('Hydration Completed');
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         // ── Actions ──────────────────────────────────────────────────────
         this._startItem = new PopupMenu.PopupMenuItem('▶  Start Focus Session');
-        this._startItem.connect('activate', () => this._timer.start());
+        this._startItem.connect('activate', () => this.emit('start-session-requested'));
         this.menu.addMenuItem(this._startItem);
 
         this._resumeItem = new PopupMenu.PopupMenuItem('▶  Resume');
@@ -113,18 +104,17 @@ export const PanelIndicator = GObject.registerClass({
         this._addWaterItem.connect('activate', () => this._onAddWater?.());
         this.menu.addMenuItem(this._addWaterItem);
 
-        // Reset water — with inline confirmation submenu
-        const resetWaterSub = new PopupMenu.PopupSubMenuMenuItem('🔄  Reset Water Counter');
-        const confirmWater = new PopupMenu.PopupMenuItem('✓  Yes, reset today\'s water');
-        confirmWater.connect('activate', () => {
-            this._onResetWater?.();
-            resetWaterSub.menu.close();
-        });
-        const cancelWater = new PopupMenu.PopupMenuItem('✗  Cancel');
-        cancelWater.connect('activate', () => resetWaterSub.menu.close());
-        resetWaterSub.menu.addMenuItem(confirmWater);
-        resetWaterSub.menu.addMenuItem(cancelWater);
-        this.menu.addMenuItem(resetWaterSub);
+        this._resetWaterItem = new PopupMenu.PopupMenuItem('🔄  Reset Water Counter');
+        this._resetWaterItem.connect('activate', () => this.emit('reset-water-requested'));
+        this.menu.addMenuItem(this._resetWaterItem);
+
+        this._setGoalItem = new PopupMenu.PopupMenuItem('🎯  Set Focus Goal');
+        this._setGoalItem.connect('activate', () => this.emit('set-goal-requested'));
+        this.menu.addMenuItem(this._setGoalItem);
+
+        this._weeklyReportItem = new PopupMenu.PopupMenuItem('📊  Weekly Productivity Report');
+        this._weeklyReportItem.connect('activate', () => this.emit('weekly-report-requested'));
+        this.menu.addMenuItem(this._weeklyReportItem);
 
         this._resetItem = new PopupMenu.PopupMenuItem('🔄  Reset Focus Session');
         this._resetItem.connect('activate', () => this._timer.stop());
@@ -150,7 +140,6 @@ export const PanelIndicator = GObject.registerClass({
         return label;
     }
 
-    /** Adds a two-column info row: title on left, live value on right. */
     _addTimerRow(title) {
         const item = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
         const box  = new St.BoxLayout({ x_expand: true });
@@ -170,8 +159,6 @@ export const PanelIndicator = GObject.registerClass({
         return val;
     }
 
-    // ── Signals ──────────────────────────────────────────────────────────────
-
     _connectSignals() {
         this._timerHandlers = [
             this._timer.connect('tick',          () => this.update()),
@@ -179,10 +166,31 @@ export const PanelIndicator = GObject.registerClass({
             this._timer.connect('suspended',     () => this.update()),
             this._timer.connect('resumed',       () => this.update()),
         ];
-        this._settings.connect('indicator-mode', () => this.update());
+        this._settingsHandler = this._settings.gio.connect('changed::indicator-mode', () => this.update());
+        this._menuOpenHandler = this.menu.connect('open-state-changed', (menu, isOpen) => {
+            if (isOpen) {
+                this._refreshMenu();
+                this._startMenuUpdates();
+            } else {
+                this._stopMenuUpdates();
+            }
+        });
     }
 
-    // ── Live update (called every tick) ─────────────────────────────────────
+    _startMenuUpdates() {
+        this._stopMenuUpdates();
+        this._menuTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
+            this._refreshMenu();
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopMenuUpdates() {
+        if (this._menuTimeoutId) {
+            GLib.source_remove(this._menuTimeoutId);
+            this._menuTimeoutId = 0;
+        }
+    }
 
     update() {
         if (this._settings.indicatorMode === 'hidden') {
@@ -191,8 +199,6 @@ export const PanelIndicator = GObject.registerClass({
         }
         this.visible = true;
 
-        // Only update menu rows when the dropdown is actually open — there is
-        // nothing else to update (the panel icon is static).
         if (this.menu.isOpen)
             this._refreshMenu();
     }
@@ -207,28 +213,28 @@ export const PanelIndicator = GObject.registerClass({
         // ── State heading ─────────────────────────────────────────────────
         this._stateHeading.text = STATE_HEADING[state] ?? 'FocusGuard';
 
+        // ── Focus Goal ───────────────────────────────────────────────────
+        const goal = this._settings.currentFocusGoal || 'None';
+        this._focusGoalValue.text = goal;
+
         // ── Live timers ───────────────────────────────────────────────────
-        // Focus Session: work-seconds elapsed since start() — counts up.
         this._focusSessionValue.text =
             state !== TimerState.IDLE
                 ? formatHMS(this._timer.sessionElapsed)
                 : '00:00:00';
 
-        // Next Break: work-block remaining (down) or break remaining (down).
         if (inWork)
             this._nextBreakValue.text = formatHMS(remaining);
         else if (inBreak)
-            this._nextBreakValue.text = formatHMS(remaining); // break ends in…
+            this._nextBreakValue.text = formatHMS(remaining);
         else
             this._nextBreakValue.text = '00:00:00';
 
-        // Eye Reminder: 20-min rolling counter.
-        this._eyeReminderValue.text = inWork
+        this._eyeReminderValue.text = (state === TimerState.WORK)
             ? formatHMS(this._timer.eyeReminderRemaining)
             : '00:00:00';
 
-        // Hydration reminder: time until next scheduled nudge.
-        const hydroSec = this._hydration?.remainingSeconds ?? 0;
+        const hydroSec = this._timer.hydrationReminderRemaining;
         this._hydrationValue.text = hydroSec > 0
             ? formatHMS(hydroSec)
             : (this._settings.waterReminderEnabled ? '00:00:00' : '—');
@@ -236,7 +242,47 @@ export const PanelIndicator = GObject.registerClass({
         // ── Daily stats ───────────────────────────────────────────────────
         const today = this._analytics.getToday();
         this._todayFocusValue.text   = formatHMS(today.focus);
+
+        const focusScore = this._analytics.getTodayFocusScore();
+        this._focusScoreValue.text = `${focusScore}/100`;
+        if (focusScore >= 80) {
+            this._focusScoreValue.style = 'color: #8ae234; font-weight: bold;';
+        } else if (focusScore >= 50) {
+            this._focusScoreValue.style = 'color: #fce94f; font-weight: bold;';
+        } else {
+            this._focusScoreValue.style = 'color: #ef2929; font-weight: bold;';
+        }
+
+        const burnout = this._analytics.getTodayBurnoutAndRecovery();
+        this._burnoutRiskValue.text = burnout.risk;
+        if (burnout.risk === 'Low') {
+            this._burnoutRiskValue.style = 'color: #8ae234; font-weight: bold;';
+        } else if (burnout.risk === 'Moderate') {
+            this._burnoutRiskValue.style = 'color: #fce94f; font-weight: bold;';
+        } else {
+            this._burnoutRiskValue.style = 'color: #ef2929; font-weight: bold;';
+        }
+
+        this._recoveryScoreValue.text = `${burnout.score}/100`;
+        if (burnout.score >= 75) {
+            this._recoveryScoreValue.style = 'color: #8ae234; font-weight: bold;';
+        } else if (burnout.score >= 45) {
+            this._recoveryScoreValue.style = 'color: #fce94f; font-weight: bold;';
+        } else {
+            this._recoveryScoreValue.style = 'color: #ef2929; font-weight: bold;';
+        }
+
         this._waterConsumedValue.text = `${today.water} Glass${today.water !== 1 ? 'es' : ''}`;
+
+        if (today.lastWaterLoggedTimestamp > 0) {
+            const elapsedMin = Math.floor((Date.now() - today.lastWaterLoggedTimestamp) / 60000);
+            this._lastWaterLoggedValue.text = elapsedMin === 0 ? 'Just now' : `${elapsedMin} minute${elapsedMin !== 1 ? 's' : ''} ago`;
+        } else {
+            this._lastWaterLoggedValue.text = 'Never';
+        }
+
+        this._eyeCompletedValue.text = `${today.eyeRemindersCompleted || 0}`;
+        this._hydrationCompletedValue.text = `${today.hydrationRemindersCompleted || 0}`;
 
         // ── Action visibility ─────────────────────────────────────────────
         this._startItem.visible  = state === TimerState.IDLE;
@@ -246,18 +292,24 @@ export const PanelIndicator = GObject.registerClass({
         this._resetItem.visible  = state !== TimerState.IDLE;
     }
 
-    /** Called externally after water is logged so the count refreshes live. */
     refreshIfOpen() {
         if (this.menu.isOpen)
             this._refreshMenu();
     }
 
-    // ── Cleanup ───────────────────────────────────────────────────────────────
-
     destroy() {
+        this._stopMenuUpdates();
         for (const id of this._timerHandlers ?? [])
             this._timer.disconnect(id);
         this._timerHandlers = null;
+        if (this._settingsHandler) {
+            this._settings.gio.disconnect(this._settingsHandler);
+            this._settingsHandler = 0;
+        }
+        if (this._menuOpenHandler) {
+            this.menu.disconnect(this._menuOpenHandler);
+            this._menuOpenHandler = 0;
+        }
         super.destroy();
     }
 });

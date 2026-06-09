@@ -12,6 +12,7 @@ export const TimerState = Object.freeze({
     WORK: 'work',           // focus block in progress
     BREAK: 'break',         // short/micro break in progress
     LONG_BREAK: 'long-break',
+    EYE_BREAK: 'eye-break', // 20-20-20 eye care break
     PAUSED: 'paused',       // paused by user
     SUSPENDED: 'suspended', // auto-paused (idle / inhibited / screen share)
 });
@@ -57,6 +58,7 @@ export const Keys = Object.freeze({
     SHOW_POSTURE: 'show-posture',
     ALLOW_SKIP_BREAK: 'allow-skip-break',
 
+    CURRENT_FOCUS_GOAL: 'current-focus-goal',
     DAILY_FOCUS_GOAL: 'daily-focus-goal',
     DAILY_BREAK_GOAL: 'daily-break-goal',
     DAILY_WATER_GOAL: 'daily-water-goal',

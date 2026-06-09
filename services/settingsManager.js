@@ -85,6 +85,8 @@ export class SettingsManager {
     set lastActiveDay(v) { this.setString(Keys.LAST_ACTIVE_DAY, v); }
     get firstRun() { return this.getBool(Keys.FIRST_RUN); }
     set firstRun(v) { this.setBool(Keys.FIRST_RUN, v); }
+    get currentFocusGoal() { return this.getString(Keys.CURRENT_FOCUS_GOAL); }
+    set currentFocusGoal(v) { this.setString(Keys.CURRENT_FOCUS_GOAL, v); }
 
     /**
      * Subscribe to one or many keys. Returns nothing; all handler ids are
@@ -108,7 +110,7 @@ export class SettingsManager {
      */
     exportToObject() {
         const out = { _format: 'focusguard-settings', _version: 1, values: {} };
-        const skip = new Set([Keys.ANALYTICS_DATA, Keys.LAST_ACTIVE_DAY, Keys.FIRST_RUN]);
+        const skip = new Set([Keys.ANALYTICS_DATA, Keys.LAST_ACTIVE_DAY, Keys.FIRST_RUN, Keys.CURRENT_FOCUS_GOAL]);
         for (const key of this._settings.list_keys()) {
             if (skip.has(key))
                 continue;
@@ -146,7 +148,7 @@ export class SettingsManager {
 
     /** Restore user-facing keys to defaults, preserving analytics & runtime state. */
     resetAll() {
-        const skip = new Set([Keys.ANALYTICS_DATA, Keys.LAST_ACTIVE_DAY, Keys.FIRST_RUN]);
+        const skip = new Set([Keys.ANALYTICS_DATA, Keys.LAST_ACTIVE_DAY, Keys.FIRST_RUN, Keys.CURRENT_FOCUS_GOAL]);
         for (const key of this._settings.list_keys()) {
             if (!skip.has(key))
                 this._settings.reset(key);

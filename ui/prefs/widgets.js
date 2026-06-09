@@ -95,6 +95,36 @@ export function comboRow(group, settings, key, title, options, subtitle = '') {
     return row;
 }
 
+/**
+ * A combo row backed by an integer key.
+ * @param {Array<{value:number,label:string}>} options
+ */
+export function comboRowInt(group, settings, key, title, options, subtitle = '') {
+    const model = new Gtk.StringList();
+    for (const opt of options)
+        model.append(opt.label);
+
+    const row = new Adw.ComboRow({ title, subtitle, model });
+    group.add(row);
+
+    const values = options.map(o => o.value);
+    const syncFromSettings = () => {
+        const current = settings.get_int(key);
+        const idx = values.indexOf(current);
+        if (idx >= 0 && idx !== row.selected)
+            row.selected = idx;
+    };
+    syncFromSettings();
+    const changedId = settings.connect(`changed::${key}`, syncFromSettings);
+    row.connect('notify::selected', () => {
+        const val = values[row.selected];
+        if (val !== undefined && val !== settings.get_int(key))
+            settings.set_int(key, val);
+    });
+    row.connect('destroy', () => settings.disconnect(changedId));
+    return row;
+}
+
 /** A free-text entry row bound to a string key. */
 export function entryRow(group, settings, key, title) {
     const row = new Adw.EntryRow({ title });

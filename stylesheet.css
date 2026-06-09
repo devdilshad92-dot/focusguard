@@ -105,3 +105,65 @@
     color: rgba(255, 255, 255, 0.9);
     letter-spacing: 1px;
 }
+
+/* --------------------------------- Dialogs -------------------------------- */
+.focusguard-dialog {
+    border-radius: 12px;
+    background-color: #1a1e24;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 24px;
+    spacing: 16px;
+    max-width: 480px;
+}
+
+.focusguard-dialog-title {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #ffffff;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+.focusguard-dialog-text {
+    font-size: 1.1em;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: center;
+}
+
+.focusguard-dialog-entry {
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    color: #ffffff;
+    padding: 8px 12px;
+    font-size: 1.1em;
+    caret-color: #4a90d9;
+    min-width: 320px;
+}
+
+.focusguard-dialog-entry:focus {
+    border-color: #4a90d9;
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.focusguard-dialog-grid {
+    spacing: 8px;
+    padding: 12px 0;
+}
+
+.focusguard-dialog-row {
+    spacing: 16px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.focusguard-dialog-row-label {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.95em;
+}
+
+.focusguard-dialog-row-value {
+    color: #ffffff;
+    font-size: 0.95em;
+    font-weight: 600;
+}

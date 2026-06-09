@@ -3,7 +3,7 @@
  */
 import Adw from 'gi://Adw';
 import { Keys } from '../../utils/constants.js';
-import { comboRow, spinRow, switchRow, group } from './widgets.js';
+import { comboRow, comboRowInt, spinRow, switchRow, group } from './widgets.js';
 
 export function buildRemindersPage(settings) {
     const page = new Adw.PreferencesPage({
@@ -23,8 +23,13 @@ export function buildRemindersPage(settings) {
     const idle = group(page, 'Idle Awareness',
         'FocusGuard never nags you while you are away.');
     switchRow(idle, settings, Keys.PAUSE_ON_IDLE, 'Pause when idle');
-    spinRow(idle, settings, Keys.IDLE_THRESHOLD, 'Idle threshold (seconds)',
-        { min: 30, max: 1800, step: 10 });
+    comboRowInt(idle, settings, Keys.IDLE_THRESHOLD, 'Idle threshold', [
+        { value: 300, label: '5 minutes' },
+        { value: 600, label: '10 minutes (default)' },
+        { value: 900, label: '15 minutes' },
+        { value: 1200, label: '20 minutes' },
+        { value: 1800, label: '30 minutes' },
+    ]);
     spinRow(idle, settings, Keys.IDLE_RESET_THRESHOLD,
         'Reset focus after idle (seconds)',
         { min: 60, max: 7200, step: 30,

@@ -18,7 +18,7 @@
  */
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
-import { localDayKey, dayDiff, round } from '../utils/helpers.js';
+import { localDayKey, dayDiff, round, clamp, formatDurationLong } from '../utils/helpers.js';
 import { Logger } from '../utils/logger.js';
 
 const HISTORY_DAYS = 120;            // keep ~4 months of daily records
@@ -31,6 +31,11 @@ const EMPTY_DAY = () => ({
     snoozes: 0,
     water: 0,
     longestFocus: 0,
+    eyeRemindersShown: 0,
+    eyeRemindersCompleted: 0,
+    eyeRemindersSkipped: 0,
+    hydrationRemindersCompleted: 0,
+    lastWaterLoggedTimestamp: 0,
 });
 
 export const AnalyticsService = GObject.registerClass({
@@ -100,12 +105,41 @@ export const AnalyticsService = GObject.registerClass({
     addWater(delta = 1) {
         const today = this._today();
         today.water = Math.max(0, today.water + delta);
+        if (delta > 0) {
+            today.lastWaterLoggedTimestamp = Date.now();
+        }
         this._scheduleFlush(true);
     }
 
     /** Reset today's water count to zero. */
     resetWaterToday() {
-        this._today().water = 0;
+        const today = this._today();
+        today.water = 0;
+        today.lastWaterLoggedTimestamp = 0;
+        this._scheduleFlush(true);
+    }
+
+    recordEyeReminderShown() {
+        const today = this._today();
+        today.eyeRemindersShown = (today.eyeRemindersShown || 0) + 1;
+        this._scheduleFlush(true);
+    }
+
+    recordEyeReminderCompleted() {
+        const today = this._today();
+        today.eyeRemindersCompleted = (today.eyeRemindersCompleted || 0) + 1;
+        this._scheduleFlush(true);
+    }
+
+    recordEyeReminderSkipped() {
+        const today = this._today();
+        today.eyeRemindersSkipped = (today.eyeRemindersSkipped || 0) + 1;
+        this._scheduleFlush(true);
+    }
+
+    recordHydrationReminderCompleted() {
+        const today = this._today();
+        today.hydrationRemindersCompleted = (today.hydrationRemindersCompleted || 0) + 1;
         this._scheduleFlush(true);
     }
 
@@ -113,6 +147,139 @@ export const AnalyticsService = GObject.registerClass({
 
     getToday() {
         return { ...EMPTY_DAY(), ...this._today() };
+    }
+
+    calculateFocusScoreForRecord(record) {
+        const dailyFocusGoal = this._settings.dailyFocusGoal || 14400;
+        const dailyWaterGoal = this._settings.dailyWaterGoal || 8;
+        
+        // 1. Focus Time Consistency (40%)
+        const focusRatio = record.focus / dailyFocusGoal;
+        const focusComponent = Math.min(1, focusRatio) * 40;
+        
+        // 2. Break Quality (25%)
+        const totalBreaks = record.breaksTaken + record.breaksSkipped;
+        const breakRatio = totalBreaks === 0 ? 1.0 : record.breaksTaken / totalBreaks;
+        const snoozeDeduction = (record.snoozes || 0) * 2;
+        const breakComponent = clamp(breakRatio * 25 - snoozeDeduction, 0, 25);
+        
+        // 3. Hydration (15%)
+        const waterRatio = record.water / dailyWaterGoal;
+        const hydrationComponent = Math.min(1, waterRatio) * 15;
+        
+        // 4. Eye Care (20%)
+        const totalEye = record.eyeRemindersShown || 0;
+        const eyeRatio = totalEye === 0 ? 1.0 : (record.eyeRemindersCompleted || 0) / totalEye;
+        const eyeComponent = eyeRatio * 20;
+        
+        return Math.round(focusComponent + breakComponent + hydrationComponent + eyeComponent);
+    }
+    
+    calculateRecoveryScoreForRecord(record) {
+        const dailyWaterGoal = this._settings.dailyWaterGoal || 8;
+        let score = 100;
+        
+        // 1. Continuous Work Penalty (up to -40)
+        const longest = record.longestFocus || 0;
+        if (longest > 90 * 60) {
+            score -= 40;
+        } else if (longest > 60 * 60) {
+            score -= 25;
+        } else if (longest > 45 * 60) {
+            score -= 10;
+        }
+        
+        // 2. Break Compliance Penalty (up to -30)
+        const totalBreaks = record.breaksTaken + record.breaksSkipped;
+        const breakCompliance = totalBreaks === 0 ? 1.0 : record.breaksTaken / totalBreaks;
+        score -= (1 - breakCompliance) * 30;
+        
+        // 3. Eye Compliance Penalty (up to -15)
+        const totalEye = record.eyeRemindersShown || 0;
+        const eyeCompliance = totalEye === 0 ? 1.0 : (record.eyeRemindersCompleted || 0) / totalEye;
+        score -= (1 - eyeCompliance) * 15;
+        
+        // 4. Hydration Penalty (up to -15)
+        const waterRatio = record.water / dailyWaterGoal;
+        score -= (1 - Math.min(1, waterRatio)) * 15;
+        
+        return Math.round(clamp(score, 0, 100));
+    }
+    
+    getTodayBurnoutAndRecovery() {
+        const today = this.getToday();
+        const score = this.calculateRecoveryScoreForRecord(today);
+        let risk = 'Low';
+        if (score < 45) {
+            risk = 'High';
+        } else if (score < 75) {
+            risk = 'Moderate';
+        }
+        return { score, risk };
+    }
+    
+    getTodayFocusScore() {
+        const today = this.getToday();
+        return this.calculateFocusScoreForRecord(today);
+    }
+
+    getWeeklyReportStats() {
+        const range = this.getRange(7);
+        let totalFocusSec = 0;
+        let totalWater = 0;
+        let totalBreaksTaken = 0;
+        let totalBreaksSkipped = 0;
+        let totalEyeShown = 0;
+        let totalEyeCompleted = 0;
+        let maxLongestFocus = 0;
+        let mostProductiveDayKey = '—';
+        let maxDayFocusSec = 0;
+        
+        let focusScores = [];
+        let recoveryScores = [];
+        const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        
+        for (const day of range) {
+            totalFocusSec += day.focus;
+            totalWater += day.water;
+            totalBreaksTaken += day.breaksTaken;
+            totalBreaksSkipped += day.breaksSkipped;
+            totalEyeShown += day.eyeRemindersShown || 0;
+            totalEyeCompleted += day.eyeRemindersCompleted || 0;
+            if (day.longestFocus > maxLongestFocus) {
+                maxLongestFocus = day.longestFocus;
+            }
+            if (day.focus > maxDayFocusSec) {
+                maxDayFocusSec = day.focus;
+                try {
+                    const d = new Date(`${day.date}T00:00:00`);
+                    mostProductiveDayKey = daysOfWeek[d.getDay()];
+                } catch {
+                    mostProductiveDayKey = '—';
+                }
+            }
+            
+            focusScores.push(this.calculateFocusScoreForRecord(day));
+            recoveryScores.push(this.calculateRecoveryScoreForRecord(day));
+        }
+        
+        const avgFocus = focusScores.reduce((a, b) => a + b, 0) / Math.max(1, focusScores.length);
+        const avgRecovery = recoveryScores.reduce((a, b) => a + b, 0) / Math.max(1, recoveryScores.length);
+        
+        const breakTotal = totalBreaksTaken + totalBreaksSkipped;
+        const breakComplianceVal = breakTotal === 0 ? 100 : Math.round((totalBreaksTaken / breakTotal) * 100);
+        const eyeComplianceVal = totalEyeShown === 0 ? 100 : Math.round((totalEyeCompleted / totalEyeShown) * 100);
+        
+        return {
+            totalFocus: formatDurationLong(totalFocusSec),
+            breakCompliance: `${breakComplianceVal}%`,
+            waterIntake: `${totalWater} Glasses`,
+            eyeCareCompliance: `${eyeComplianceVal}%`,
+            avgFocusScore: `${Math.round(avgFocus)}/100`,
+            avgRecoveryScore: `${Math.round(avgRecovery)}/100`,
+            mostProductiveDay: mostProductiveDayKey !== '—' ? `${mostProductiveDayKey} (${formatDurationLong(maxDayFocusSec)})` : '—',
+            longestFocusSession: formatDurationLong(maxLongestFocus),
+        };
     }
 
     getDay(key) {
