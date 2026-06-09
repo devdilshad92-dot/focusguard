@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="focusguard">
+
+  <!--
+    FocusGuard settings schema.
+    Path: /org/gnome/shell/extensions/focusguard/
+    Every persisted preference and analytics blob lives here so that the
+    extension is fully stateless across reloads and survives shell restarts.
+  -->
+  <enum id="org.gnome.shell.extensions.focusguard.TimerMode">
+    <value nick="simple"   value="0"/>
+    <value nick="pomodoro" value="1"/>
+  </enum>
+
+  <enum id="org.gnome.shell.extensions.focusguard.ReminderStyle">
+    <value nick="notification" value="0"/>
+    <value nick="overlay"      value="1"/>
+    <value nick="both"         value="2"/>
+  </enum>
+
+  <enum id="org.gnome.shell.extensions.focusguard.IndicatorMode">
+    <value nick="icon-and-countdown" value="0"/>
+    <value nick="icon-only"          value="1"/>
+    <value nick="countdown-only"     value="2"/>
+    <value nick="hidden"             value="3"/>
+  </enum>
+
+  <schema id="org.gnome.shell.extensions.focusguard"
+          path="/org/gnome/shell/extensions/focusguard/">
+
+    <!-- ========================= Core timing ========================= -->
+    <key name="timer-mode" enum="org.gnome.shell.extensions.focusguard.TimerMode">
+      <default>'simple'</default>
+      <summary>Timer mode</summary>
+      <description>Simple interval reminders or Pomodoro work/break cycles.</description>
+    </key>
+
+    <key name="work-duration" type="i">
+      <default>1200</default>
+      <range min="60" max="14400"/>
+      <summary>Work duration (seconds)</summary>
+      <description>Length of a focus block before a break is suggested.</description>
+    </key>
+
+    <key name="break-duration" type="i">
+      <default>300</default>
+      <range min="30" max="3600"/>
+      <summary>Break duration (seconds)</summary>
+      <description>Length of a short/micro break.</description>
+    </key>
+
+    <key name="long-break-duration" type="i">
+      <default>900</default>
+      <range min="60" max="7200"/>
+      <summary>Long break duration (seconds)</summary>
+      <description>Length of the long break in Pomodoro mode.</description>
+    </key>
+
+    <key name="pomodoros-until-long-break" type="i">
+      <default>4</default>
+      <range min="2" max="12"/>
+      <summary>Pomodoros until a long break</summary>
+    </key>
+
+    <key name="auto-start-breaks" type="b">
+      <default>true</default>
+      <summary>Automatically start the break when work ends</summary>
+    </key>
+
+    <key name="auto-start-work" type="b">
+      <default>true</default>
+      <summary>Automatically start the next focus block when a break ends</summary>
+    </key>
+
+    <!-- ========================= Idle handling ========================= -->
+    <key name="pause-on-idle" type="b">
+      <default>true</default>
+      <summary>Pause the timer while the user is idle</summary>
+    </key>
+
+    <key name="idle-threshold" type="i">
+      <default>600</default>
+      <range min="30" max="1800"/>
+      <summary>Idle threshold (seconds)</summary>
+      <description>How long with no input before the user is considered idle.</description>
+    </key>
+
+    <key name="idle-reset-threshold" type="i">
+      <default>600</default>
+      <range min="60" max="7200"/>
+      <summary>Idle reset threshold (seconds)</summary>
+      <description>Idle longer than this counts as a natural break and resets the work timer.</description>
+    </key>
+
+    <!-- ========================= Reminder behaviour ========================= -->
+    <key name="reminder-style" enum="org.gnome.shell.extensions.focusguard.ReminderStyle">
+      <default>'notification'</default>
+      <summary>How breaks are presented</summary>
+    </key>
+
+    <key name="enable-notifications" type="b">
+      <default>true</default>
+      <summary>Show native GNOME notifications</summary>
+    </key>
+
+    <key name="enable-sounds" type="b">
+      <default>true</default>
+      <summary>Play a sound on break start and end</summary>
+    </key>
+
+    <key name="escalate-ignored" type="b">
+      <default>true</default>
+      <summary>Escalate reminders that are repeatedly ignored</summary>
+    </key>
+
+    <key name="escalation-interval" type="i">
+      <default>60</default>
+      <range min="15" max="600"/>
+      <summary>Seconds between escalating nudges</summary>
+    </key>
+
+    <key name="postpone-on-fullscreen" type="b">
+      <default>true</default>
+      <summary>Postpone breaks during fullscreen apps</summary>
+    </key>
+
+    <key name="postpone-on-inhibit" type="b">
+      <default>true</default>
+      <summary>Postpone breaks during presentations / video / screen sharing</summary>
+      <description>Honours desktop idle inhibitors set by media players and conferencing apps.</description>
+    </key>
+
+    <key name="snooze-durations" type="ai">
+      <default>[300, 600, 900]</default>
+      <summary>Available snooze durations (seconds)</summary>
+    </key>
+
+    <key name="adaptive-scheduling" type="b">
+      <default>true</default>
+      <summary>Adapt interval length to recent behaviour</summary>
+      <description>Gently lengthens or shortens focus blocks based on how often breaks are skipped.</description>
+    </key>
+
+    <!-- ========================= Break experience ========================= -->
+    <key name="overlay-fade-ms" type="i">
+      <default>400</default>
+      <range min="0" max="2000"/>
+      <summary>Overlay fade animation duration (ms)</summary>
+    </key>
+
+    <key name="show-stretch-tips" type="b">
+      <default>true</default>
+      <summary>Show stretching suggestions during breaks</summary>
+    </key>
+
+    <key name="show-eye-care" type="b">
+      <default>true</default>
+      <summary>Show 20-20-20 eye-care reminders</summary>
+    </key>
+
+    <key name="show-hydration" type="b">
+      <default>true</default>
+      <summary>Show hydration reminders</summary>
+    </key>
+
+    <key name="show-breathing" type="b">
+      <default>true</default>
+      <summary>Offer a guided breathing exercise</summary>
+    </key>
+
+    <key name="show-posture" type="b">
+      <default>true</default>
+      <summary>Show posture reminders</summary>
+    </key>
+
+    <key name="allow-skip-break" type="b">
+      <default>true</default>
+      <summary>Allow the break overlay to be skipped</summary>
+    </key>
+
+    <!-- ========================= Goals ========================= -->
+    <key name="current-focus-goal" type="s">
+      <default>''</default>
+      <summary>Current focus goal</summary>
+      <description>The current task or focus goal</description>
+    </key>
+
+    <key name="daily-focus-goal" type="i">
+      <default>14400</default>
+      <range min="1800" max="57600"/>
+      <summary>Daily focus goal (seconds)</summary>
+    </key>
+
+    <key name="daily-break-goal" type="i">
+      <default>8</default>
+      <range min="1" max="48"/>
+      <summary>Daily break goal (count)</summary>
+    </key>
+
+    <key name="daily-water-goal" type="i">
+      <default>8</default>
+      <range min="1" max="30"/>
+      <summary>Daily hydration goal (glasses)</summary>
+    </key>
+
+    <key name="water-reminder-enabled" type="b">
+      <default>false</default>
+      <summary>Periodically remind you to drink water</summary>
+      <description>Sends a notification at a fixed interval until the daily hydration goal is met. Suppressed while idle, in deep work, or while breaks are postponed.</description>
+    </key>
+
+    <key name="water-reminder-interval" type="i">
+      <default>60</default>
+      <range min="10" max="480"/>
+      <summary>Minutes between hydration reminders</summary>
+    </key>
+
+    <!-- ========================= Developer features ========================= -->
+    <key name="deep-work-mode" type="b">
+      <default>false</default>
+      <summary>Deep work mode (suppress all reminders)</summary>
+    </key>
+
+    <key name="pause-on-screen-share" type="b">
+      <default>true</default>
+      <summary>Pause automatically while screen sharing</summary>
+    </key>
+
+    <key name="git-streak-enabled" type="b">
+      <default>false</default>
+      <summary>Track a git commit streak</summary>
+    </key>
+
+    <key name="git-repo-path" type="s">
+      <default>''</default>
+      <summary>Path to the git repository to watch</summary>
+    </key>
+
+    <!-- ========================= Appearance ========================= -->
+    <key name="indicator-mode" enum="org.gnome.shell.extensions.focusguard.IndicatorMode">
+      <default>'icon-and-countdown'</default>
+      <summary>Panel indicator display mode</summary>
+    </key>
+
+    <key name="indicator-position" type="s">
+      <default>'right'</default>
+      <summary>Panel box: left, center or right</summary>
+    </key>
+
+    <!-- ========================= Persistent runtime state ========================= -->
+    <!-- Analytics are kept as a JSON blob so the schema stays stable while the
+         analytics model evolves. The structure is owned by AnalyticsService. -->
+    <key name="analytics-data" type="s">
+      <default>'{}'</default>
+      <summary>Serialized analytics history (JSON)</summary>
+    </key>
+
+    <key name="last-active-day" type="s">
+      <default>''</default>
+      <summary>ISO date of the last recorded activity (for daily rollover)</summary>
+    </key>
+
+    <key name="first-run" type="b">
+      <default>true</default>
+      <summary>Whether the welcome flow still needs to run</summary>
+    </key>
+  </schema>
+</schemalist>
