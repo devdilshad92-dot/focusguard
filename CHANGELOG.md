@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.3] - 2026-06-09
+## [1.0.4] - 2026-06-09
 
 ### Fixed
 - **Static Analysis Compliance:** Renamed custom settings connection wrapper from `connect` to `observe` to resolve false-positive `EGO-L-003` warnings from `shexli` static analysis.
