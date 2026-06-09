@@ -94,7 +94,7 @@ export class SettingsManager {
      * @param {string|string[]} keys
      * @param {() => void} callback
      */
-    connect(keys, callback) {
+    observe(keys, callback) {
         const list = Array.isArray(keys) ? keys : [keys];
         for (const key of list) {
             const id = this._settings.connect(`changed::${key}`, callback);

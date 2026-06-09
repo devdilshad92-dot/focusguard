@@ -204,10 +204,10 @@ export default class FocusGuardExtension extends Extension {
     }
 
     _wireSettings() {
-        this._settings.connect(Keys.IDLE_THRESHOLD, () =>
+        this._settings.observe(Keys.IDLE_THRESHOLD, () =>
             this._idleMonitor.watch(this._settings.idleThreshold));
 
-        this._settings.connect(
+        this._settings.observe(
             [Keys.ADAPTIVE_SCHEDULING, Keys.WORK_DURATION],
             () => this._applyAdaptive());
 
@@ -216,7 +216,7 @@ export default class FocusGuardExtension extends Extension {
 
     _wireHydration() {
         this._track(this._timer, 'hydration-due', () => this._onWaterReminder());
-        this._settings.connect(
+        this._settings.observe(
             [Keys.WATER_REMINDER_ENABLED, Keys.WATER_REMINDER_INTERVAL],
             () => this._timer.refreshFromSettings());
     }
