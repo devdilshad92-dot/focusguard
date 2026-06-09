@@ -1,0 +1,128 @@
+/*
+ * FocusGuard stylesheet.
+ *
+ * Shell CSS is a constrained subset of CSS. We lean on translucent colours and
+ * `currentColor`-friendly values so the indicator looks right in both light and
+ * dark shell themes without hard-coding a palette. The fullscreen overlay uses
+ * its own dim backdrop so it is theme-independent by design.
+ */
+
+/* ----------------------------- Panel indicator ---------------------------- */
+.focusguard-indicator {
+    spacing: 4px;
+}
+
+.focusguard-countdown {
+    font-feature-settings: "tnum";   /* tabular numerals: no width jitter */
+    font-weight: 600;
+    padding-left: 2px;
+}
+
+/* Subtle accent on the icon while focusing / on break. */
+.focusguard-state-work .focusguard-icon {
+    color: #4a90d9;
+}
+
+.focusguard-state-break .focusguard-icon {
+    color: #57c84d;
+}
+
+/* ------------------------------- Popup menu ------------------------------- */
+.focusguard-menu-header {
+    spacing: 6px;
+    padding: 6px 4px 10px 4px;
+}
+
+.focusguard-header-title {
+    font-weight: 700;
+    font-size: 1.1em;
+}
+
+.focusguard-header-subtitle {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9em;
+}
+
+.focusguard-progress-track {
+    background-color: rgba(127, 127, 127, 0.25);
+    border-radius: 99px;
+    margin-top: 4px;
+}
+
+.focusguard-progress-fill {
+    background-color: #4a90d9;
+    border-radius: 99px;
+    height: 6px;
+}
+
+.focusguard-stats {
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.9em;
+    padding: 4px;
+}
+
+/* --------------------------- Fullscreen overlay --------------------------- */
+.focusguard-overlay {
+    background-color: rgba(20, 22, 28, 0.92);
+}
+
+.focusguard-overlay-content {
+    spacing: 22px;
+    padding: 48px;
+    max-width: 640px;
+}
+
+.focusguard-overlay-title {
+    font-size: 2.2em;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+.focusguard-overlay-countdown {
+    font-feature-settings: "tnum";
+    font-size: 4em;
+    font-weight: 300;
+    color: #ffffff;
+}
+
+.focusguard-overlay-tip {
+    font-size: 1.25em;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: center;
+}
+
+.focusguard-overlay-buttons {
+    spacing: 12px;
+    margin-top: 12px;
+}
+
+.focusguard-overlay-button {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    border-radius: 99px;
+    padding: 10px 26px;
+    font-weight: 600;
+    transition-duration: 150ms;
+}
+
+.focusguard-overlay-button:hover,
+.focusguard-overlay-button:focus {
+    background-color: rgba(255, 255, 255, 0.24);
+}
+
+/* ----------------------------- Breathing guide ---------------------------- */
+.focusguard-breath-wrap {
+    height: 160px;
+}
+
+.focusguard-breath-circle {
+    background-color: rgba(74, 144, 217, 0.35);
+    border: 2px solid rgba(120, 180, 255, 0.8);
+    border-radius: 99px;
+}
+
+.focusguard-breath-label {
+    font-size: 1.1em;
+    color: rgba(255, 255, 255, 0.9);
+    letter-spacing: 1px;
+}
