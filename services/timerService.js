@@ -189,6 +189,10 @@ export const TimerService = GObject.registerClass({
 
     resumeFromIdle() {
         this._idlePendingResume = false;
+        // If the eye reminder expired while we were parked, reset it so it
+        // doesn't fire immediately on resume after a long idle.
+        if (this._eyeRemaining <= 0)
+            this._eyeRemaining = 20 * 60;
         this._leaveSuspend();
     }
 

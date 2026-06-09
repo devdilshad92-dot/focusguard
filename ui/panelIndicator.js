@@ -88,8 +88,13 @@ export const PanelIndicator = GObject.registerClass({
         this._startItem.connect('activate', () => this.emit('start-session-requested'));
         this.menu.addMenuItem(this._startItem);
 
-        this._resumeItem = new PopupMenu.PopupMenuItem('▶  Resume');
-        this._resumeItem.connect('activate', () => this._timer.resume());
+        this._resumeItem = new PopupMenu.PopupMenuItem('▶  Resume Session');
+        this._resumeItem.connect('activate', () => {
+            if (this._timer.idlePendingResume)
+                this._timer.resumeFromIdle();
+            else
+                this._timer.resume();
+        });
         this.menu.addMenuItem(this._resumeItem);
 
         this._pauseItem = new PopupMenu.PopupMenuItem('⏸  Pause Timers');
@@ -285,10 +290,11 @@ export const PanelIndicator = GObject.registerClass({
         this._hydrationCompletedValue.text = `${today.hydrationRemindersCompleted || 0}`;
 
         // ── Action visibility ─────────────────────────────────────────────
+        const idlePending = state === TimerState.SUSPENDED && this._timer.idlePendingResume;
         this._startItem.visible  = state === TimerState.IDLE;
-        this._resumeItem.visible = state === TimerState.PAUSED;
-        this._pauseItem.visible  = running || state === TimerState.SUSPENDED;
-        this._skipItem.visible   = running || state === TimerState.SUSPENDED;
+        this._resumeItem.visible = state === TimerState.PAUSED || idlePending;
+        this._pauseItem.visible  = (running || state === TimerState.SUSPENDED) && !idlePending;
+        this._skipItem.visible   = (running || state === TimerState.SUSPENDED) && !idlePending;
         this._resetItem.visible  = state !== TimerState.IDLE;
     }
 
