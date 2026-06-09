@@ -96,10 +96,20 @@ export class SettingsManager {
      */
     connect(keys, callback) {
         const list = Array.isArray(keys) ? keys : [keys];
+        const ids = [];
         for (const key of list) {
             const id = this._settings.connect(`changed::${key}`, callback);
             this._handlerIds.push(id);
+            ids.push(id);
         }
+        return ids;
+    }
+
+    disconnect(id) {
+        const idx = this._handlerIds.indexOf(id);
+        if (idx !== -1)
+            this._handlerIds.splice(idx, 1);
+        this._settings.disconnect(id);
     }
 
     // ---- Import / export ----------------------------------------------------

@@ -4,7 +4,7 @@
   "description": "Break reminders, Pomodoro focus sessions, eye-care, hydration tracking, posture nudges and productivity analytics for GNOME.",
   "version": 1,
   "version-name": "1.0.0",
-  "shell-version": ["45", "46", "47", "48"],
+  "shell-version": ["42", "45", "46", "47", "48"],
   "session-modes": ["user"],
   "url": "https://github.com/devdilshad92-dot/focusguard",
   "settings-schema": "org.gnome.shell.extensions.focusguard",

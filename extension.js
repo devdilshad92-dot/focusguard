@@ -120,6 +120,11 @@ export default class FocusGuardExtension extends Extension {
         return id;
     }
 
+    _trackSettings(keys, callback) {
+        for (const id of this._settings.connect(keys, callback))
+            this._signalIds.push({ obj: this._settings, id });
+    }
+
     _wireIdle() {
         this._idleMonitor.watch(this._settings.idleThreshold);
         this._track(this._idleMonitor, 'idle', () => {
@@ -204,10 +209,10 @@ export default class FocusGuardExtension extends Extension {
     }
 
     _wireSettings() {
-        this._settings.connect(Keys.IDLE_THRESHOLD, () =>
+        this._trackSettings(Keys.IDLE_THRESHOLD, () =>
             this._idleMonitor.watch(this._settings.idleThreshold));
 
-        this._settings.connect(
+        this._trackSettings(
             [Keys.ADAPTIVE_SCHEDULING, Keys.WORK_DURATION],
             () => this._applyAdaptive());
 
@@ -216,7 +221,7 @@ export default class FocusGuardExtension extends Extension {
 
     _wireHydration() {
         this._track(this._timer, 'hydration-due', () => this._onWaterReminder());
-        this._settings.connect(
+        this._trackSettings(
             [Keys.WATER_REMINDER_ENABLED, Keys.WATER_REMINDER_INTERVAL],
             () => this._timer.refreshFromSettings());
     }
