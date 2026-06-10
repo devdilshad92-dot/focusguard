@@ -24,7 +24,7 @@ import { Logger } from './utils/logger.js';
 
 export default class FocusGuardExtension extends Extension {
     enable() {
-        Logger.info(`enabling v${this.metadata['version-name'] ?? this.metadata.version}`);
+        Logger.info('enabling focusguard@dilshad.dev');
 
         this._idle = false;
         this._signalIds = [];
