@@ -204,21 +204,21 @@ export default class FocusGuardExtension extends Extension {
     }
 
     _wireSettings() {
-        this._settings.observe(Keys.IDLE_THRESHOLD, () =>
+        this._track(this._settings.gio, `changed::${Keys.IDLE_THRESHOLD}`, () =>
             this._idleMonitor.watch(this._settings.idleThreshold));
 
-        this._settings.observe(
-            [Keys.ADAPTIVE_SCHEDULING, Keys.WORK_DURATION],
-            () => this._applyAdaptive());
+        const applyAdaptiveCb = () => this._applyAdaptive();
+        this._track(this._settings.gio, `changed::${Keys.ADAPTIVE_SCHEDULING}`, applyAdaptiveCb);
+        this._track(this._settings.gio, `changed::${Keys.WORK_DURATION}`, applyAdaptiveCb);
 
-        this._track(this._analytics, 'updated', () => this._applyAdaptive());
+        this._track(this._analytics, 'updated', applyAdaptiveCb);
     }
 
     _wireHydration() {
         this._track(this._timer, 'hydration-due', () => this._onWaterReminder());
-        this._settings.observe(
-            [Keys.WATER_REMINDER_ENABLED, Keys.WATER_REMINDER_INTERVAL],
-            () => this._timer.refreshFromSettings());
+        const refreshCb = () => this._timer.refreshFromSettings();
+        this._track(this._settings.gio, `changed::${Keys.WATER_REMINDER_ENABLED}`, refreshCb);
+        this._track(this._settings.gio, `changed::${Keys.WATER_REMINDER_INTERVAL}`, refreshCb);
     }
 
     _wireIndicatorActions() {
